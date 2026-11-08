@@ -1,0 +1,7 @@
+name = "pwrss-proxy"
+main = "feedly-proxy.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://rpietzsch.github.io,http://localhost:8080"
+# Set a secret key with:  npx wrangler secret put PROXY_KEY
