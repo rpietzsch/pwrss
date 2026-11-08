@@ -1,0 +1,92 @@
+# https://taskfile.dev  — run `task` to list targets
+version: '3'
+
+vars:
+  PORT: '{{.PORT | default "8080"}}'
+  OUT: _site
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  dev:
+    desc: Serve the source tree with live files (no build step) on http://localhost:{{.PORT}}
+    aliases: [serve]
+    cmds:
+      - echo "Serving http://localhost:{{.PORT}}  (tip — click 'Try the demo')"
+      - python3 -m http.server {{.PORT}} --bind 127.0.0.1
+
+  build:
+    desc: Build the deployable static site into {{.OUT}}/
+    sources: [index.html, styles.css, manifest.webmanifest, sw.js, js/**/*, vendor/**/*, icons/**/*, scripts/build.sh]
+    generates: ['{{.OUT}}/index.html']
+    cmds:
+      - ./scripts/build.sh {{.OUT}}
+
+  preview:
+    desc: Build, then serve {{.OUT}}/ exactly as it will be deployed
+    deps: [build]
+    cmds:
+      - python3 -m http.server {{.PORT}} --bind 127.0.0.1 --directory {{.OUT}}
+
+  clean:
+    desc: Remove build output and caches
+    cmds:
+      - rm -rf {{.OUT}} worker/.wrangler
+
+  lint:
+    desc: Syntax-check all JavaScript
+    cmds:
+      - for f in js/*.js sw.js worker/*.js scripts/*.cjs tests/*.cjs; do node --check "$f" || exit 1; done
+
+  test:
+    desc: End-to-end smoke test in demo mode (Playwright/Chromium)
+    cmds:
+      - node tests/smoke.cjs .
+
+  test:dist:
+    desc: Smoke-test the built site
+    deps: [build]
+    cmds:
+      - node tests/smoke.cjs {{.OUT}}
+
+  check:
+    desc: Lint + test (run before committing)
+    cmds:
+      - task: lint
+      - task: test
+
+  icons:
+    desc: Regenerate PNG app icons from icons/icon.svg
+    cmds:
+      - node scripts/icons.cjs icons
+
+  vendor:
+    desc: Update vendored Readability and DOMPurify from npm
+    vars:
+      TMP:
+        sh: mktemp -d
+    cmds:
+      - cd {{.TMP}} && npm pack @mozilla/readability dompurify --silent
+      - cd {{.TMP}} && for f in *.tgz; do mkdir -p "${f%.tgz}" && tar xzf "$f" -C "${f%.tgz}"; done
+      - cp {{.TMP}}/mozilla-readability-*/package/Readability.js vendor/
+      - cp {{.TMP}}/mozilla-readability-*/package/LICENSE.md vendor/Readability.LICENSE.md
+      - cp {{.TMP}}/dompurify-*/package/dist/purify.min.js vendor/
+      - cp {{.TMP}}/dompurify-*/package/LICENSE vendor/DOMPurify.LICENSE
+      - sed -i.bak 's#//\# sourceMappingURL=.*##' vendor/purify.min.js && rm vendor/purify.min.js.bak
+      - rm -rf {{.TMP}}
+
+  worker:dev:
+    desc: Run the Feedly proxy worker locally (wrangler)
+    dir: worker
+    cmds:
+      - npx wrangler dev
+
+  worker:deploy:
+    desc: Deploy the Feedly proxy worker to Cloudflare
+    dir: worker
+    cmds:
+      - npx wrangler deploy

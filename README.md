@@ -10,8 +10,8 @@ A fast, gesture-driven PWA reader for your **Feedly** account, inspired by Reede
 - **Reader mode**: fetches the full page and cleans it up with Mozilla Readability
 - **Gestures**: swipe right/left on an article to toggle read/saved (configurable), swipe from the left edge to go back, flick left/right in an article for next/previous, pull down to refresh
 - Mark as read on open or on scroll, mark all as read, unread/all filter, Today and Saved views
-- Keyboard: `J`/`K` next/prev · `M` read · `S` save · `R` reader · `V` open · `U` filter · `Shift+A` mark all · `Shift+R` refresh · `Space` page down · `Esc` back
-- Light, dark, sepia themes; adjustable text size and serif/sans
+- Keyboard: `J`/`K` next/prev · `M` read · `S` save · `R` reader · `V` open · `U` filter · `T` theme · `Shift+A` mark all · `Shift+R` refresh · `Space` page down · `Esc` back
+- Light and dark mode following your system setting by default; one-tap override (System → Light → Dark), plus sepia, text size and serif/sans
 - Installable, works offline from cache; read/save changes are queued and synced when back online
 - No build step, no tracking. Your token stays in your browser's localStorage.
 
@@ -55,12 +55,22 @@ proxy key if you set one. Then *Add to Home Screen* (iOS Safari: Share → Add t
 
 ## Development
 
-It's plain HTML/CSS/ES modules, no build step:
+Plain HTML/CSS/ES modules — no build step needed to develop. Tasks use [Task](https://taskfile.dev)
+(`brew install go-task` or `npm i -g @go-task/cli`):
 
 ```sh
-python3 -m http.server 8080
-# open http://localhost:8080 and click "Try the demo"
+task dev            # serve the source tree on http://localhost:8080 — click "Try the demo"
+task check          # syntax check + Playwright smoke test (demo mode)
+task build          # build the deployable site into _site/
+task preview        # build and serve _site/
+task clean          # remove build output
+task icons          # regenerate PNG icons from icons/icon.svg
+task vendor         # update vendored Readability / DOMPurify
+task worker:deploy  # deploy the Cloudflare proxy
 ```
+
+Run `task` to list everything. See [AGENTS.md](AGENTS.md) for contributor/agent conventions,
+[tasks/backlog.md](tasks/backlog.md) and [tasks/specs.md](tasks/specs.md) for plans and behaviour specs.
 
 `js/demo.js` is a fake backend with the same interface as the Feedly client, used by demo mode.
 
@@ -72,6 +82,9 @@ js/api.js           Feedly API client
 js/gestures.js      swipe rows, long-press, edge-back, flick, pull-to-refresh
 js/reader.js        DOMPurify sanitizing + Readability reader mode
 js/demo.js          demo backend
+scripts/build.sh    build into _site/ (used by task build and CI)
+tests/smoke.cjs     end-to-end smoke test
+tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)
 worker/             Cloudflare Worker proxy
 vendor/             Readability 0.6.0 (Apache-2.0), DOMPurify 3.4 (Apache-2.0/MPL-2.0)

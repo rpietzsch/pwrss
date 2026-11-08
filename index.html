@@ -16,6 +16,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <script>try{document.documentElement.dataset.theme=(JSON.parse(localStorage.getItem('pwrss.settings')||'{}').theme)||'auto'}catch(e){}</script>
   <script src="vendor/purify.min.js" defer></script>
   <script type="module" src="js/app.js"></script>
 </head>
@@ -26,6 +27,7 @@
       <header class="bar">
         <h1 class="brand">Pwrss</h1>
         <div class="bar-actions">
+          <button class="icon-btn" data-action="cycle-theme" title="Theme: System (T)" aria-label="Change theme"><svg><use href="#i-theme-auto"/></svg></button>
           <button class="icon-btn" data-action="refresh" title="Refresh (Shift+R)" aria-label="Refresh"><svg><use href="#i-refresh"/></svg></button>
           <button class="icon-btn" data-action="settings" title="Settings" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
         </div>
@@ -123,7 +125,7 @@
         <section>
           <h3>Appearance</h3>
           <label class="row"><span>Theme</span>
-            <select name="theme"><option value="auto">Automatic</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select>
+            <select name="theme"><option value="auto">System (default)</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select>
           </label>
           <label class="row"><span>Text size</span><input type="range" name="fontSize" min="14" max="24" step="1"></label>
           <label class="row"><span>Article font</span>
@@ -132,7 +134,7 @@
         </section>
         <section class="kbd-help">
           <h3>Keyboard</h3>
-          <p><kbd>J</kbd>/<kbd>K</kbd> next/prev · <kbd>M</kbd> read · <kbd>S</kbd> save · <kbd>R</kbd> reader · <kbd>V</kbd> open · <kbd>U</kbd> filter · <kbd>Shift</kbd>+<kbd>A</kbd> mark all · <kbd>Shift</kbd>+<kbd>R</kbd> refresh · <kbd>Esc</kbd> back</p>
+          <p><kbd>J</kbd>/<kbd>K</kbd> next/prev · <kbd>M</kbd> read · <kbd>S</kbd> save · <kbd>R</kbd> reader · <kbd>V</kbd> open · <kbd>U</kbd> filter · <kbd>T</kbd> theme · <kbd>Shift</kbd>+<kbd>A</kbd> mark all · <kbd>Shift</kbd>+<kbd>R</kbd> refresh · <kbd>Esc</kbd> back</p>
           <h3>Gestures</h3>
           <p>Swipe an article right/left to toggle read or saved. Long-press for a quick preview. Swipe from the left edge to go back. Pull down to refresh.</p>
         </section>
@@ -164,6 +166,9 @@
       <symbol id="i-reader" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></g></symbol>
       <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5L12 3l4.5 4.5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-theme-auto" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></g><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
       <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM3 13h5l1.5 3h5L16 13h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>

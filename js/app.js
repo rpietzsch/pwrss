@@ -116,12 +116,37 @@ const streamTitle = (id) => {
 function startOfToday() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 
 // ---------- theme ----------
+// 'auto' follows the OS light/dark setting (CSS prefers-color-scheme); light/dark/sepia override it.
+const darkMq = matchMedia('(prefers-color-scheme: dark)');
+const THEME_ICON = { auto: 'theme-auto', light: 'sun', dark: 'moon', sepia: 'sun' };
+const THEME_LABEL = { auto: 'System', light: 'Light', dark: 'Dark', sepia: 'Sepia' };
+function applyTheme(theme) {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  // keep browser UI / status bar in sync with the active theme
+  const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+  for (const m of document.querySelectorAll('meta[name="theme-color"]')) m.setAttribute('content', bg);
+  const btn = document.querySelector('[data-action="cycle-theme"]');
+  if (btn) {
+    setIcon(btn, THEME_ICON[theme] || 'theme-auto');
+    btn.title = `Theme: ${THEME_LABEL[theme] || theme} (T)`;
+  }
+}
+darkMq.addEventListener('change', () => applyTheme(S.settings.theme));
 function applyAppearance() {
   const st = S.settings;
-  document.documentElement.dataset.theme = st.theme;
+  applyTheme(st.theme);
   document.documentElement.style.setProperty('--article-size', st.fontSize + 'px');
   document.documentElement.dataset.font = st.font;
   document.documentElement.classList.toggle('no-thumbs', !st.thumbs);
+}
+function cycleTheme() {
+  const order = ['auto', 'light', 'dark'];
+  const next = order[(order.indexOf(S.settings.theme) + 1) % order.length];
+  S.settings.theme = next;
+  LS.set('settings', S.settings);
+  applyTheme(next);
+  toast(next === 'auto' ? `Theme: System (${darkMq.matches ? 'dark' : 'light'})` : `Theme: ${THEME_LABEL[next]}`, 1200);
 }
 
 // ---------- views & history ----------
@@ -602,6 +627,7 @@ const actions = {
     openStream(S.streamId);
   },
   'mark-all': () => markAll(),
+  'cycle-theme': () => cycleTheme(),
   demo: () => { S.settings.demo = true; LS.set('settings', S.settings); el.settings.close(); start(); },
   logout: () => {
     if (!confirm('Sign out and remove your token from this device?')) return;
@@ -659,6 +685,7 @@ document.addEventListener('keydown', (ev) => {
     v: () => actions.open(), o: () => actions.open(),
     u: () => actions['toggle-filter'](),
     A: () => markAll(),
+    t: () => cycleTheme(),
     R: () => refresh(),
     Escape: () => (peekId ? closePeek() : back()),
     ' ': () => {
@@ -706,7 +733,7 @@ el.form.addEventListener('submit', (ev) => {
 el.form.addEventListener('input', (ev) => {
   const n = ev.target.name;
   if (n === 'fontSize') document.documentElement.style.setProperty('--article-size', ev.target.value + 'px');
-  if (n === 'theme') document.documentElement.dataset.theme = ev.target.value;
+  if (n === 'theme') applyTheme(ev.target.value);
   if (n === 'font') document.documentElement.dataset.font = ev.target.value;
 });
 el.settings.addEventListener('close', () => applyAppearance());
