@@ -13,7 +13,7 @@ const LS = {
 const DEFAULTS = {
   token: '', proxy: '', proxyKey: '', demo: false, userId: null,
   markOnOpen: true, markOnScroll: false, readerDefault: false, thumbs: true,
-  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans',
+  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom',
 };
 
 const S = {
@@ -138,6 +138,7 @@ function applyAppearance() {
   applyTheme(st.theme);
   document.documentElement.style.setProperty('--article-size', st.fontSize + 'px');
   document.documentElement.dataset.font = st.font;
+  document.documentElement.dataset.toolbar = st.toolbar;
   document.documentElement.classList.toggle('no-thumbs', !st.thumbs);
 }
 function cycleTheme() {
@@ -734,6 +735,7 @@ el.form.addEventListener('input', (ev) => {
   const n = ev.target.name;
   if (n === 'fontSize') document.documentElement.style.setProperty('--article-size', ev.target.value + 'px');
   if (n === 'theme') applyTheme(ev.target.value);
+  if (n === 'toolbar') document.documentElement.dataset.toolbar = ev.target.value;
   if (n === 'font') document.documentElement.dataset.font = ev.target.value;
 });
 el.settings.addEventListener('close', () => applyAppearance());

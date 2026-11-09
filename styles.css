@@ -159,6 +159,22 @@ svg { width: 22px; height: 22px; flex: none; }
 #filter-btn use[href="#i-dot-fill"] { color: var(--unread); }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Toolbar at the bottom (thumb reach) — touch/tablet layouts only; wide desktop keeps bars on top */
+@media (max-width: 1099px) {
+  [data-toolbar="bottom"] .pane { padding-top: var(--safe-t); }
+  [data-toolbar="bottom"] .pane > .bar {
+    order: 5;
+    height: calc(var(--bar-h) + var(--safe-b));
+    padding: 0 8px var(--safe-b);
+    border-bottom: 0;
+    border-top: 1px solid var(--line);
+  }
+  [data-toolbar="bottom"] #ptr { top: calc(var(--safe-t) - 30px); }
+  [data-toolbar="bottom"] #entries { padding-bottom: 0; }
+  [data-toolbar="bottom"] #article-scroll { padding-bottom: 40px; }
+  [data-toolbar="bottom"] #source-list { padding-bottom: 24px; }
+  [data-toolbar="bottom"] #toast { bottom: calc(var(--bar-h) + var(--safe-b) + 16px); }
+}
 #article:not(.has-entry) .bar-actions > :not(.spacer) { opacity: .3; pointer-events: none; }
 
 /* ---------- sources ---------- */

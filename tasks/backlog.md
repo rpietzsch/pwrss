@@ -20,6 +20,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-09 — Toolbar position setting (bottom by default, top optional) for thumb reach (spec: #theme-and-appearance)
 - [x] 2026-11-08 — Light/dark mode following the system setting, quick theme toggle (`T`), synced `theme-color` (spec: #theme-and-appearance)
 - [x] 2026-11-08 — Taskfile with lifecycle targets, scripted build, smoke test
 - [x] 2026-11-08 — Initial PWA: sources, list, article, reader mode, gestures, offline queue, demo, proxy worker, Pages deploy

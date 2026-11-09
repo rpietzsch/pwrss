@@ -50,6 +50,10 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - The browser/status-bar color (`theme-color`) matches the active theme.
 - The saved theme is applied before the first paint, so there's no flash of the wrong theme.
 - Text size runs from 14 to 24px, with a sans or serif article font.
+- Toolbar position is a setting: Bottom (default) or Top. It applies to every pane's toolbar (sources, list, article).
+- Bottom toolbars sit above the home indicator (safe-area inset), and toasts appear above them.
+- Position only takes effect below 1100px width (phone and tablet layouts). Wide desktop windows always keep toolbars on top.
+- The saved position is applied before the first paint, so the bars don't jump on launch.
 
 ## Offline and sync
 

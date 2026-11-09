@@ -12,6 +12,7 @@ A fast, gesture-driven PWA reader for your **Feedly** account, inspired by Reede
 - Mark as read on open or on scroll, mark all as read, unread/all filter, Today and Saved views
 - Keyboard: `J`/`K` next/prev · `M` read · `S` save · `R` reader · `V` open · `U` filter · `T` theme · `Shift+A` mark all · `Shift+R` refresh · `Space` page down · `Esc` back
 - Light and dark mode following your system setting by default; one-tap override (System → Light → Dark), plus sepia, text size and serif/sans
+- Toolbars at the bottom of the screen for thumb reach on phones and tablets (switchable to top in Settings)
 - Installable, works offline from cache; read/save changes are queued and synced when back online
 - No build step, no tracking. Your token stays in your browser's localStorage.
 

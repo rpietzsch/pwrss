@@ -75,6 +75,12 @@ server.listen(0, async () => {
     await m.waitForSelector('.entry');
     await m.locator('.entry').first().tap();
     await m.waitForTimeout(400);
+    const barY = () => m.evaluate(() => document.querySelector('#list > .bar').getBoundingClientRect().top);
+    const vh = await m.evaluate(() => innerHeight);
+    check('toolbar defaults to bottom on phone', (await barY()) > vh / 2);
+    await m.evaluate(() => { document.documentElement.dataset.toolbar = 'top'; });
+    check('toolbar can be moved to top', (await barY()) < 60);
+    await m.evaluate(() => { document.documentElement.dataset.toolbar = 'bottom'; });
     check('mobile: article view', (await m.getAttribute('#app', 'data-view')) === 'article');
     await m.goBack(); await m.waitForTimeout(300);
     check('mobile: back to list', (await m.getAttribute('#app', 'data-view')) === 'list');
