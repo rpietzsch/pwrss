@@ -77,7 +77,8 @@ declared in `worker/wrangler.toml`, so deploying the Worker sets it up.
 1. Make sure the Worker has the **`PROXY_KEY`** secret (see above). Sync refuses to run without one.
 2. Let the Worker redeploy from the latest version (the Git-connected build does it on push). If the build fails, open
    its log in Cloudflare: Durable Objects with SQLite must be available on your plan (they are on the free plan).
-3. On each device: Settings → **Sync** → switch it on → Save. On a new device, enter the proxy URL and key first; the
+3. Check `https://<your-worker>.workers.dev/health` in a browser: it should list `sync: ready`. (`sync: not set up` means the Worker hasn't redeployed yet or the build failed.)
+4. On each device: Settings → **Sync** → switch it on → Save. On a new device, enter the proxy URL and key first; the
    feed list arrives automatically and the feeds are fetched.
 
 How it behaves: changes are queued and sent a few seconds later (and when you open the app or tap *Sync now*); it works

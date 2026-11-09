@@ -106,6 +106,9 @@ function makeState() {
   const base = { ALLOWED_ORIGINS: ORIGIN, PROXY_KEY: 'k', SYNC: stub };
   let res = await hit(base);
   check('route: sync works with origin, key and the binding', res.status === 200 && (await res.json()).flags.length === 1);
+  const health = await w.fetch(new Request('https://w/health'), base);
+  const healthNo = await w.fetch(new Request('https://w/health'), { ...base, SYNC: undefined });
+  check('health reports whether sync is set up', (await health.text()).includes('sync: ready') && (await healthNo.text()).includes('sync: not set up'));
   res = await hit({ ...base, PROXY_KEY: undefined });
   check('route: refuses to run without a proxy key set', res.status === 403 && (await res.json()).error === 'sync_requires_proxy_key');
   res = await hit({ ...base, SYNC: undefined });

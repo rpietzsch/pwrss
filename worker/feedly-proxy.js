@@ -54,7 +54,7 @@ export default {
 
     // Public liveness check: open it in a browser to confirm the worker is deployed.
     if (url.pathname === '/health') {
-      return new Response(`Pwrss proxy OK\norigins: ${allowed.length ? 'restricted' : 'ANY'}\nkey: ${env.PROXY_KEY ? 'required' : 'not set'}\n`, {
+      return new Response(`Pwrss proxy OK\norigins: ${allowed.length ? 'restricted' : 'ANY'}\nkey: ${env.PROXY_KEY ? 'required' : 'not set'}\nsync: ${env.SYNC ? 'ready' : 'not set up'}\n`, {
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }
