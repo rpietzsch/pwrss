@@ -250,7 +250,7 @@ async function fetchFeedOnce(f) {
     if (!res.ok) {
       let detail = '';
       try { detail = snippet(await res.text()); } catch {}
-      return { url, status: res.status, error: `HTTP ${res.status}`, detail, finalUrl: res.url || t.href };
+      return { url, status: res.status, error: `HTTP ${res.status}`, detail, finalUrl: res.url || t.href, server: res.headers.get('Server') || undefined };
     }
     const { buf, truncated } = await readLimited(res, MAX_FEED_BYTES);
     let body = decode(buf, type);

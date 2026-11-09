@@ -138,13 +138,13 @@ const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (
 
   // ---- failures report where a redirect ended up ----
   globalThis.fetch = async (url) => {
-    const res = new Response('', { status: 419 });
+    const res = new Response('', { status: 419, headers: { Server: 'nginx' } });
     Object.defineProperty(res, 'url', { value: 'https://target.example/rss' });
     return res;
   };
   r = await post([{ url: 'https://redirecting.example/rss' }]);
   const fin = (await j(r)).results[0];
-  check('feeds: failure includes the final URL after redirects', fin.status === 419 && fin.finalUrl === 'https://target.example/rss', fin);
+  check('feeds: failure includes the final URL after redirects', fin.status === 419 && fin.finalUrl === 'https://target.example/rss' && fin.server === 'nginx', fin);
 
   process.exit(failures ? 1 : 0);
 })();

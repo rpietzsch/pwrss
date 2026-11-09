@@ -2,6 +2,10 @@
 
 The current, authoritative behavior of the app. See AGENTS.md for how to maintain this file.
 
+## Messages
+
+- Short status messages (toasts) are always visible, including while Settings or Manage feeds is open: they are drawn above dialogs.
+
 ## Local feeds (default source)
 
 - Pwrss works without any Feedly account. The feed list comes from an **OPML file** (Feedly: `feedly.com/i/opml`), imported in Settings → Feeds.
@@ -15,7 +19,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - A feed larger than 2 MB (long podcast feeds) is cut after the newest complete items that fit, so it still loads with its latest episodes.
 - Refresh uses conditional requests (ETag / Last-Modified), so unchanged feeds cost almost nothing.
 - Refresh happens on launch when the last refresh is more than 15 minutes old, when returning to the app after more than 15 minutes, and on pull-to-refresh or the refresh button. The refresh button always fetches every feed.
-- Failed feeds are listed in Settings → Feeds with their feed URL, the reason (e.g. `HTTP 503`) and, when available, what the server said (the start of its response text, plus where a redirect ended up when it differs from the feed URL, or the content type and start of the page for "Not a valid feed"). The list shows all of them (scrollable). Each has a remove button that deletes that feed at once, without confirmation. **Retry failed** re-fetches only the failed feeds. **Remove all failed** asks for confirmation with the count, then removes them. Removing a feed deletes its unsaved articles; saved ones stay. The sources list and counts update after each removal.
+- Failed feeds are listed in Settings → Feeds with their feed URL, the reason (e.g. `HTTP 503`) and, when available, what the server said (the start of its response text, plus where a redirect ended up when it differs from the feed URL, and which server answered, or the content type and start of the page for "Not a valid feed"). The list shows all of them (scrollable). Each has a remove button that deletes that feed at once, without confirmation. **Retry failed** re-fetches only the failed feeds and shows its progress (`Retrying n/N…`) on the button, then a result message. Each failed feed also has its own retry button (here and in Manage feeds) that re-fetches just that feed and reports whether it recovered or why it still fails. **Remove all failed** asks for confirmation with the count, then removes them. Removing a feed deletes its unsaved articles; saved ones stay. The sources list and counts update after each removal.
 - Progress shows as "Fetching feeds n/N…". The finished refresh reports how many new articles arrived and how many feeds failed.
 - An automatic refresh reloads the list only when it is scrolled to the top. Otherwise it shows "N new articles" and leaves the list alone.
 - When a feed is fetched for the first time, only articles from the last 7 days are unread. Older ones start as read.

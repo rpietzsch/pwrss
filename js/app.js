@@ -64,12 +64,20 @@ function ago(ts) {
 }
 const fullDate = (ts) => new Date(ts).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-let toastTimer;
+let toastTimer, toastHide;
 function toast(msg, ms = 2600) {
   el.toast.textContent = msg;
-  el.toast.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.toast.classList.remove('show'), ms);
+  clearTimeout(toastTimer); clearTimeout(toastHide);
+  // The toast is a popover: it lives in the top layer, so it shows above open dialogs.
+  try {
+    if (el.toast.matches(':popover-open')) el.toast.hidePopover(); // re-show to move above any dialog opened since
+    el.toast.showPopover();
+  } catch { /* browsers without popover: falls back to a normal fixed element */ }
+  requestAnimationFrame(() => el.toast.classList.add('show'));
+  toastTimer = setTimeout(() => {
+    el.toast.classList.remove('show');
+    toastHide = setTimeout(() => { try { el.toast.hidePopover(); } catch {} }, 250);
+  }, ms);
 }
 function fail(e) {
   console.error(e);
@@ -775,7 +783,7 @@ async function updateFeedStatus() {
     ? `${st.feeds} feed${st.feeds === 1 ? '' : 's'} · ${when}${st.failed.length ? ` · ${st.failed.length} failed` : ''}`
     : 'No local feeds yet.';
   const ul = $('#feeds-errors');
-  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span class="msg">${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small></span><span class="ctl"><button type="button" class="icon-btn edit" data-failed-edit aria-label="Edit URL of ${esc(f.title)}" title="Edit feed URL"><svg><use href="${SPRITE}#i-link"/></svg></button><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></span></li>`).join('');
+  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span class="msg">${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small></span><span class="ctl"><button type="button" class="icon-btn retry" data-failed-retry aria-label="Retry ${esc(f.title)}" title="Retry this feed"><svg><use href="${SPRITE}#i-refresh"/></svg></button><button type="button" class="icon-btn edit" data-failed-edit aria-label="Edit URL of ${esc(f.title)}" title="Edit feed URL"><svg><use href="${SPRITE}#i-link"/></svg></button><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></span></li>`).join('');
   ul.hidden = !st.failed.length;
   $('#feeds-failed-actions').hidden = !st.failed.length;
   $('#remove-failed-btn').textContent = `Remove all failed (${st.failed.length})`;
@@ -806,6 +814,27 @@ $('#opml-file').addEventListener('change', async (ev) => {
   } catch (e) { fail(e); }
 });
 
+// Re-fetch a single feed and say what happened (shared by Manage feeds and the failed list).
+async function retryOne(id, node) {
+  const lf = await getLocal();
+  const f = lf.feeds.get(id);
+  if (!f) return;
+  collectFormIfOpen();
+  node?.classList.add('spin');
+  if (node) node.disabled = true;
+  toast(`Retrying ${f.title || f.url}…`, 30000);
+  try {
+    const r = await lf.refreshAll({ ids: [id] });
+    toast(f.error ? `Still failing: ${f.error}${f.errorDetail ? ` — ${f.errorDetail.slice(0, 80)}` : ''}` : `Recovered${r.added ? ` — ${r.added} new article${r.added === 1 ? '' : 's'}` : ''}`, 4000);
+    await syncAfterChange();
+    updateFeedStatus();
+    if (dlgManage.open) await renderManage();
+  } finally {
+    node?.classList.remove('spin');
+    if (node) node.disabled = false;
+  }
+}
+
 // Ask for a new address, apply it and report the result (shared by Manage feeds and the failed list).
 async function editFeedUrl(id) {
   const lf = await getLocal();
@@ -823,6 +852,8 @@ async function editFeedUrl(id) {
 }
 
 $('#feeds-errors').addEventListener('click', async (ev) => {
+  const rt = ev.target.closest('[data-failed-retry]');
+  if (rt) { try { await retryOne(rt.closest('li').dataset.id, rt); } catch (err) { fail(err); } return; }
   const e = ev.target.closest('[data-failed-edit]');
   if (e) { try { await editFeedUrl(e.closest('li').dataset.id); } catch (err) { fail(err); } return; }
   const b = ev.target.closest('[data-failed-del]');
@@ -840,17 +871,25 @@ $('#feeds-errors').addEventListener('click', async (ev) => {
 
 Object.assign(actions, {
   'retry-failed': async () => {
+    const buttons = $$('#feeds-failed-actions button');
+    const btn = $('[data-action="retry-failed"]');
+    const label = btn.textContent;
     try {
       collectForm();
       const lf = await getLocal();
       const n = lf.failed.length;
       if (!n) return;
-      toast(`Retrying ${n} feed${n === 1 ? '' : 's'}…`, 30000);
-      const r = await lf.retryFailed();
-      toast(r.failed ? `${r.fetched} recovered, ${r.failed} still failing` : `All ${r.fetched} recovered`, 3000);
+      buttons.forEach((b) => { b.disabled = true; });
+      btn.textContent = `Retrying 0/${n}…`;
+      toast(`Retrying ${n} feed${n === 1 ? '' : 's'}…`, 60000);
+      const r = await lf.retryFailed({ onProgress: (d, t) => { btn.textContent = `Retrying ${d}/${t}…`; } });
+      toast(r.failed ? `${r.fetched} recovered, ${r.failed} still failing` : `All ${r.fetched} recovered`, 4000);
       await syncAfterChange();
+    } catch (e) { fail(e); } finally {
+      btn.textContent = label;
+      buttons.forEach((b) => { b.disabled = false; });
       updateFeedStatus();
-    } catch (e) { fail(e); }
+    }
   },
   'remove-failed': async () => {
     try {
@@ -901,7 +940,7 @@ async function renderManage() {
       <div class="mg-ctl">
         <select data-mg="move" aria-label="Category">${opts(f.category)}</select>
         ${btn('feed-up', 'Move up', 'up', '', i === 0 ? 'disabled' : '')}${btn('feed-down', 'Move down', 'down', '', i === n - 1 ? 'disabled' : '')}
-        ${btn('feed-rename', 'Rename', 'edit')}${btn('feed-url', 'Edit feed URL', 'link')}${btn('feed-remove', 'Remove feed', 'trash', 'danger')}
+        ${f.error ? btn('feed-retry', 'Retry now', 'refresh') : ''}${btn('feed-rename', 'Rename', 'edit')}${btn('feed-url', 'Edit feed URL', 'link')}${btn('feed-remove', 'Remove feed', 'trash', 'danger')}
       </div></div>`;
   const section = (label, i) => {
     const list = lf.list(label);
@@ -1007,6 +1046,7 @@ async function manageAction(act, node) {
         await lf.renameFeed(feedId, name);
         break;
       }
+      case 'feed-retry': await retryOne(feedId, node); return;
       case 'feed-url': await editFeedUrl(feedId); return;
       case 'feed-remove': {
         const f = lf.feeds.get(feedId);

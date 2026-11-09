@@ -285,6 +285,28 @@ server.listen(0, async () => {
     await p.waitForFunction(() => /2 failed/.test(document.querySelector('#feeds-status')?.textContent || ''));
     check('retry re-fetches only the failed feeds', seen.requests.length === 1 && seen.requests[0].length === 2 && seen.requests[0].every((f) => /dead|loose/.test(f.url)), seen.requests);
 
+    // per-feed retry: only that feed, with visible feedback above the open dialog
+    seen.requests.length = 0;
+    await p.click('#feeds-errors li:has-text("Dead Feed") [data-failed-retry]');
+    await p.waitForFunction(() => /Still failing/.test(document.querySelector('#toast')?.textContent || ''));
+    check('per-feed retry fetches just that feed and reports', seen.requests.length === 1 && seen.requests[0].length === 1 && /dead/.test(seen.requests[0][0].url), seen.requests);
+    // Pixel check (hit-testing is blocked outside a modal dialog): the toast is dark, the dialog behind it is white.
+    const box = await p.evaluate(() => { const r = document.querySelector('#toast').getBoundingClientRect(); return { x: r.x + 4, y: r.y + r.height / 2 - 3, width: 6, height: 6 }; });
+    const shot = (await p.screenshot({ clip: box })).toString('base64');
+    const px = await (async () => {
+      const q = await ctx.newPage();
+      const rgb = await q.evaluate(async (b64) => {
+        const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        return Array.from(g.getImageData(img.width / 2, img.height / 2, 1, 1).data.slice(0, 3));
+      }, shot);
+      await q.close();
+      return rgb;
+    })();
+    const toastOnTop = px.every((v) => v < 110);
+    check('toast is drawn above the open Settings dialog', toastOnTop, px);
+
     // edit URL from the failed list: Loose Feed -> a working address
     FEEDS['https://revived.example/feed'] = subst(fx('rss.xml')).replace('Alpha Blog', 'Revived Blog').replace(/alpha-(\d)/g, 'rev-$1');
     p.once('dialog', (d) => { check('edit URL prompt shows the current address', d.defaultValue() === 'https://loose.example/feed', d.defaultValue()); d.accept('revived.example/feed'); });

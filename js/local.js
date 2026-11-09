@@ -431,7 +431,7 @@ export class LocalFeeds {
     if (r.status !== 200) {
       f.error = r.error || `HTTP ${r.status}`;
       const moved = r.finalUrl && r.finalUrl !== f.url ? `after redirect to ${r.finalUrl}` : '';
-      f.errorDetail = [r.detail, moved].filter(Boolean).join(' — ') || null;
+      f.errorDetail = [r.detail, moved, r.server ? `server: ${r.server}` : ''].filter(Boolean).join(' — ') || null;
       return { ok: false, added: 0 };
     }
     let parsed;

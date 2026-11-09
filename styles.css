@@ -388,7 +388,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; padding: 1px 5px; border-radi
 
 /* ---------- toast ---------- */
 #toast {
-  position: fixed; left: 50%; bottom: calc(24px + var(--safe-b)); z-index: 60;
+  position: fixed; inset: auto auto calc(24px + var(--safe-b)) 50%; margin: 0; border: 0; overflow: visible; z-index: 60;
   transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
   max-width: min(92vw, 460px); padding: 10px 16px; border-radius: 12px;
   background: color-mix(in srgb, var(--fg) 92%, transparent); color: var(--bg); font-size: 14px; font-weight: 550;
@@ -452,3 +452,6 @@ button.wide { width: 100%; margin-bottom: 6px; }
 .mg-empty { padding: 10px 12px; font-size: 13px; color: var(--fg-3); border-top: 1px solid var(--line); }
 
 .feed-errors li small.url { opacity: .8; font-size: 12px; overflow-wrap: anywhere; }
+
+.feed-errors .icon-btn.retry { color: var(--fg-2); }
+.icon-btn.spin svg { animation: spin .8s linear infinite; }
