@@ -36,6 +36,13 @@ export default {
     const originOk = !allowed.length || allowed.includes(origin);
     const headers = cors(originOk ? origin : allowed[0]);
 
+    // Public liveness check: open it in a browser to confirm the worker is deployed.
+    if (url.pathname === '/health') {
+      return new Response(`Pwrss proxy OK\norigins: ${allowed.length ? 'restricted' : 'ANY'}\nkey: ${env.PROXY_KEY ? 'required' : 'not set'}\n`, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (!originOk) return new Response('Origin not allowed', { status: 403, headers });
     if (env.PROXY_KEY && request.headers.get('X-Proxy-Key') !== env.PROXY_KEY) {
@@ -93,9 +100,6 @@ export default {
         return new Response(text, { status: res.status, headers: h });
       }
 
-      if (url.pathname === '/' || url.pathname === '/health') {
-        return new Response('Pwrss proxy OK', { headers });
-      }
       return new Response('Not found', { status: 404, headers });
     } catch (e) {
       return new Response('Proxy error: ' + e.message, { status: 502, headers });

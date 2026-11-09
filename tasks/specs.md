@@ -9,7 +9,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - A 401 from Feedly shows "token expired?" and opens Settings.
 - "Try the demo" runs the whole UI against a local fake backend, with no network access to Feedly.
 - "Sign out" removes the token, caches and pending changes.
-- The proxy rejects origins that aren't in `ALLOWED_ORIGINS`, a wrong `X-Proxy-Key` (when one is set), non-http(s) URLs and private hosts.
+- The proxy rejects origins that aren't in `ALLOWED_ORIGINS`, a wrong `X-Proxy-Key` (when one is set), non-http(s) URLs and private hosts. `/health` is public and reports whether origins are restricted and a key is set.
 
 ## Sources
 
