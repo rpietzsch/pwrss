@@ -6,6 +6,13 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 
 - The user connects with a Feedly developer access token, entered in Settings and stored only in localStorage.
 - All Feedly API calls (`/v3/*`) and Reader-mode page fetches (`/fetch?url=`) go through the user's proxy worker. With no proxy configured, calls fail with an explanation that points to Settings.
+- **Sign in with Feedly (OAuth)** is the regular login. It needs a Feedly-issued client ID and secret, stored as Worker secrets `FEEDLY_CLIENT_ID` and `FEEDLY_CLIENT_SECRET`. The client secret never reaches the browser.
+- The Settings "Sign in with Feedly" button asks the Worker for `/auth/config`. If the Worker has no client credentials, the app says sign-in isn't set up and points to the README.
+- Sign-in sends the browser to Feedly's authorize page with the app's own URL (origin plus path) as `redirect_uri`, scope `https://cloud.feedly.com/subscriptions` and a random `state` saved locally. That URL must be registered with the Feedly client.
+- On return with `?code=…&state=…`, the app verifies `state`, exchanges the code through the Worker (`/auth/token`), saves the access token, refresh token and expiry, and removes the query string. A mismatched `state` or an `error` parameter shows a message and signs nothing in.
+- The app refreshes the access token through the Worker (`/auth/refresh`) when it has under 5 minutes left, and once after a 401, then retries the request. If the refresh fails, the user is asked to sign in again.
+- The pasted developer token remains as a fallback and is used only when not signed in via OAuth. Signing out clears both.
+- The Worker only accepts a `redirect_uri` whose origin is in `ALLOWED_ORIGINS`.
 - A 401 from Feedly shows "token expired?" and opens Settings.
 - "Try the demo" runs the whole UI against a local fake backend, with no network access to Feedly.
 - "Sign out" removes the token, caches and pending changes.

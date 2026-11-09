@@ -43,8 +43,9 @@ tasks:
       - for f in js/*.js sw.js worker/*.js scripts/*.cjs tests/*.cjs; do node --check "$f" || exit 1; done
 
   test:
-    desc: End-to-end smoke test in demo mode (Playwright/Chromium)
+    desc: Worker unit tests + end-to-end smoke test (Playwright/Chromium)
     cmds:
+      - node tests/worker.cjs
       - node tests/smoke.cjs .
 
   test:dist:

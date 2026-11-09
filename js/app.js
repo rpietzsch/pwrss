@@ -13,7 +13,7 @@ const LS = {
 const DEFAULTS = {
   token: '', proxy: '', proxyKey: '', demo: false, userId: null,
   markOnOpen: true, markOnScroll: false, readerDefault: false, thumbs: true,
-  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom',
+  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom', oauth: null,
 };
 
 const S = {
@@ -629,10 +629,11 @@ const actions = {
   },
   'mark-all': () => markAll(),
   'cycle-theme': () => cycleTheme(),
+  login: () => login(),
   demo: () => { S.settings.demo = true; LS.set('settings', S.settings); el.settings.close(); start(); },
   logout: () => {
     if (!confirm('Sign out and remove your token from this device?')) return;
-    S.settings = { ...S.settings, token: '', demo: false, userId: null };
+    S.settings = { ...S.settings, token: '', oauth: null, demo: false, userId: null };
     LS.set('settings', S.settings);
     LS.del('cache.entries'); LS.del('cache.meta'); LS.del('pending'); LS.del('stream');
     S.pending = {};
@@ -702,6 +703,53 @@ document.addEventListener('keydown', (ev) => {
   if (fn() !== false) ev.preventDefault();
 });
 
+// ---------- OAuth sign-in ----------
+const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, '');
+
+async function login() {
+  const f = el.form;
+  const proxy = f.elements.proxy.value.trim();
+  const proxyKey = f.elements.proxyKey.value.trim();
+  if (!proxy) { toast('Enter the proxy URL first'); return; }
+  try {
+    const cfg = await Feedly.authConfig(proxy, proxyKey);
+    if (!cfg?.enabled) { toast('Sign-in isn’t set up on your proxy yet — see the README (OAuth).', 6000); return; }
+    S.settings.proxy = proxy;
+    S.settings.proxyKey = proxyKey;
+    LS.set('settings', S.settings);
+    const state = crypto.randomUUID();
+    LS.set('oauth.state', { state, ts: Date.now() });
+    const u = new URL('https://cloud.feedly.com/v3/auth/auth');
+    u.search = new URLSearchParams({
+      response_type: 'code', client_id: cfg.clientId, redirect_uri: redirectUri(),
+      scope: 'https://cloud.feedly.com/subscriptions', state,
+    });
+    location.assign(u);
+  } catch (e) { fail(e); }
+}
+
+// Back from Feedly: ?code=…&state=… (or ?error=…)
+async function handleOAuthReturn() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('code') && !q.has('error')) return;
+  const saved = LS.get('oauth.state', null);
+  LS.del('oauth.state');
+  history.replaceState({ view: 'list' }, '', redirectUri());
+  if (q.get('error')) { toast(`Feedly sign-in failed: ${q.get('error_description') || q.get('error')}`, 6000); return; }
+  if (!saved || saved.state !== q.get('state') || Date.now() - saved.ts > 15 * 60 * 1000) {
+    toast('Sign-in could not be verified. Please try again.', 6000);
+    return;
+  }
+  try {
+    const o = await Feedly.exchangeCode(S.settings.proxy, S.settings.proxyKey, q.get('code'), redirectUri());
+    S.settings = { ...S.settings, oauth: o, demo: false, userId: null };
+    LS.set('settings', S.settings);
+    for (const k of ['cache.entries', 'cache.meta', 'pending', 'stream']) LS.del(k);
+    S.pending = {}; S.streamId = null;
+    toast('Signed in to Feedly', 1800);
+  } catch (e) { fail(e); }
+}
+
 // ---------- settings ----------
 function openSettings(welcome = false) {
   const f = el.form;
@@ -710,6 +758,11 @@ function openSettings(welcome = false) {
     if (!input) continue;
     if (input.type === 'checkbox') input.checked = !!v; else input.value = v ?? '';
   }
+  const signedIn = !!S.settings.oauth;
+  $('#signin-btn').textContent = signedIn ? 'Sign in again' : 'Sign in with Feedly';
+  $('#signin-status').textContent = signedIn ? 'Signed in with Feedly. The session refreshes automatically.'
+    : 'Opens Feedly to sign in. Needs a Feedly OAuth client set up on your proxy (see README).';
+  $('.token-alt').open = !signedIn && !!S.settings.token;
   el.settings.classList.toggle('welcome', welcome);
   if (!el.settings.open) el.settings.showModal();
 }
@@ -726,7 +779,7 @@ el.form.addEventListener('submit', (ev) => {
   if (accountChanged && S.settings.token) { S.settings.demo = false; S.settings.userId = null; }
   LS.set('settings', S.settings);
   applyAppearance();
-  if (accountChanged || (!S.api && S.settings.token)) { S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null; start(); }
+  if (accountChanged || (!S.api && (S.settings.token || S.settings.oauth))) { S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null; start(); }
   else if (prev.sort !== S.settings.sort) openStream(S.streamId);
   else { renderList(); renderArticle(); }
 });
@@ -776,7 +829,7 @@ async function refresh() {
 async function start() {
   applyAppearance();
   const st = S.settings;
-  if (!st.token && !st.demo) {
+  if (!st.token && !st.oauth && !st.demo) {
     S.api = null;
     el.entries.innerHTML = `<div class="empty-state welcome">
       <div class="logo"><img src="icons/icon.svg" alt=""></div>
@@ -790,7 +843,11 @@ async function start() {
     renderSources();
     return;
   }
-  S.api = st.demo && !st.token ? new DemoFeedly() : new Feedly(st);
+  S.api = st.demo && !st.token && !st.oauth ? new DemoFeedly() : new Feedly({
+    ...st,
+    onOAuth: (o) => { S.settings.oauth = o; LS.set('settings', S.settings); },
+    onAuthLost: () => { S.settings.oauth = null; LS.set('settings', S.settings); },
+  });
   if (S.api.demo) { S.pending = {}; }
 
   // instant paint from cache
@@ -854,7 +911,7 @@ pullToRefresh(el.entries, el.ptr, refresh);
 // ---------- boot ----------
 history.replaceState({ view: 'list' }, '');
 setView('list');
-start();
+handleOAuthReturn().then(start);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {});

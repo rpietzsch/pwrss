@@ -85,6 +85,62 @@ server.listen(0, async () => {
     await m.goBack(); await m.waitForTimeout(300);
     check('mobile: back to list', (await m.getAttribute('#app', 'data-view')) === 'list');
 
+    // ---- OAuth sign-in (all network mocked) ----
+    const PROXY = 'https://proxy.test';
+    const o = await (await b.newContext({ viewport: { width: 1300, height: 800 } })).newPage();
+    o.on('pageerror', (e) => errs.push(e.message));
+    const seen = { auth: [], profile: [], cats: [], refresh: 0 };
+    let authorizeUrl = null;
+    await o.route('https://cloud.feedly.com/**', (r) => { authorizeUrl = r.request().url(); r.fulfill({ status: 200, contentType: 'text/html', body: 'feedly' }); });
+    await o.route(PROXY + '/**', (r) => {
+      const u = new URL(r.request().url());
+      const json = (d, status = 200) => r.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(d) });
+      if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } });
+      if (u.pathname === '/auth/config') return json({ enabled: true, clientId: 'cid' });
+      if (u.pathname === '/auth/token') { seen.auth.push(JSON.parse(r.request().postData())); return json({ access_token: 'AT1', refresh_token: 'RT1', expires_in: 3600, id: 'u1' }); }
+      if (u.pathname === '/auth/refresh') { seen.refresh++; return json({ access_token: 'AT2', expires_in: 3600 }); }
+      if (u.pathname === '/v3/profile') { seen.profile.push(r.request().headers().authorization); return json({ id: 'u1' }); }
+      if (u.pathname === '/v3/categories') seen.cats.push(r.request().headers().authorization);
+      if (u.pathname === '/v3/categories' || u.pathname === '/v3/subscriptions') return json([]);
+      if (u.pathname === '/v3/markers/counts') return json({ unreadcounts: [] });
+      if (u.pathname === '/v3/streams/contents') return json({ items: [] });
+      return json({});
+    });
+    await o.goto(base);
+    await o.evaluate((px) => localStorage.setItem('pwrss.settings', JSON.stringify({ proxy: px })), PROXY);
+    await o.reload();
+    await o.click('.welcome [data-action="settings"]');
+    check('sign-in button in settings', await o.locator('#signin-btn').isVisible());
+    await o.click('#signin-btn');
+    await o.waitForURL(/cloud\.feedly\.com/);
+    const au = new URL(authorizeUrl);
+    check('authorize URL has client, redirect and scope', au.searchParams.get('client_id') === 'cid'
+      && au.searchParams.get('redirect_uri') === base && au.searchParams.get('scope') === 'https://cloud.feedly.com/subscriptions'
+      && au.searchParams.get('response_type') === 'code');
+    const state = au.searchParams.get('state');
+
+    await o.goto(base + '?code=thecode&state=WRONG');
+    await o.waitForTimeout(500);
+    check('wrong state is rejected', seen.auth.length === 0 && !(await o.evaluate(() => localStorage.getItem('pwrss.settings'))).includes('AT1'));
+
+    await o.evaluate((st) => localStorage.setItem('pwrss.oauth.state', JSON.stringify({ state: st, ts: Date.now() })), state);
+    await o.goto(base + '?code=thecode&state=' + state);
+    await o.waitForFunction(() => (localStorage.getItem('pwrss.settings') || '').includes('AT1'));
+    check('code exchanged via proxy', seen.auth.length === 1 && seen.auth[0].code === 'thecode' && seen.auth[0].redirect_uri === base);
+    await o.waitForTimeout(500);
+    check('API call uses OAuth token', seen.profile.includes('Bearer AT1'));
+    check('query string cleaned', !o.url().includes('code='));
+
+    await o.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('pwrss.settings'));
+      s.oauth.expires = Date.now() + 1000;
+      localStorage.setItem('pwrss.settings', JSON.stringify(s));
+    });
+    await o.reload();
+    await o.waitForFunction(() => (localStorage.getItem('pwrss.settings') || '').includes('AT2'));
+    check('expiring token refreshed automatically', seen.refresh >= 1 && seen.cats.includes('Bearer AT2'));
+    check('refresh token kept', (await o.evaluate(() => localStorage.getItem('pwrss.settings'))).includes('RT1'));
+
     check('no page errors', errs.length === 0);
     if (errs.length) console.log(errs);
   } catch (e) {

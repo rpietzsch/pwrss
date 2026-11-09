@@ -12,10 +12,14 @@ export class ApiError extends Error {
 }
 
 export class Feedly {
-  constructor({ token, proxy, proxyKey }) {
-    this.token = token;
+  // oauth: { access, refresh, expires } when signed in via OAuth; onOAuth(oauth) persists refreshed tokens.
+  constructor({ token, proxy, proxyKey, oauth, onOAuth, onAuthLost }) {
+    this.oauth = oauth && oauth.access ? { ...oauth } : null;
+    this.token = this.oauth ? this.oauth.access : token;
     this.proxy = (proxy || '').trim().replace(/\/+$/, '');
     this.proxyKey = proxyKey || '';
+    this.onOAuth = onOAuth;
+    this.onAuthLost = onAuthLost;
     this.userId = null;
   }
 
@@ -30,7 +34,78 @@ export class Feedly {
     return h;
   }
 
-  async req(path, { method = 'GET', params, body } = {}) {
+  // ----- OAuth (the proxy holds the client secret) -----
+  static async authPost(proxy, proxyKey, path, body) {
+    const base = (proxy || '').trim().replace(/\/+$/, '');
+    if (!base) throw new ApiError('Set the proxy URL first (Settings).', 0);
+    let res;
+    try {
+      res = await fetch(base + path, {
+        method: body ? 'POST' : 'GET',
+        headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(proxyKey ? { 'X-Proxy-Key': proxyKey } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      throw new ApiError('Could not reach the proxy. Check the proxy URL in Settings.', 0);
+    }
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (!res.ok) {
+      const msg = res.status === 403 ? 'The proxy rejected this app (origin or proxy key).'
+        : data?.error === 'oauth_not_configured' ? 'Sign-in is not set up on the proxy yet.'
+        : `Sign-in failed: ${data?.error || res.status}`;
+      throw new ApiError(msg, res.status);
+    }
+    return data;
+  }
+  static authConfig(proxy, proxyKey) { return Feedly.authPost(proxy, proxyKey, '/auth/config'); }
+  static async exchangeCode(proxy, proxyKey, code, redirectUri) {
+    const t = await Feedly.authPost(proxy, proxyKey, '/auth/token', { code, redirect_uri: redirectUri });
+    return Feedly.toOAuth(t);
+  }
+  static toOAuth(t, prev = {}) {
+    return {
+      access: t.access_token,
+      refresh: t.refresh_token || prev.refresh,
+      expires: Date.now() + (Number(t.expires_in) || 3600) * 1000,
+    };
+  }
+
+  refreshTokens() {
+    if (!this.oauth?.refresh) return Promise.reject(new ApiError('Please sign in again.', 401));
+    this._refreshing ??= Feedly.authPost(this.proxy, this.proxyKey, '/auth/refresh', { refresh_token: this.oauth.refresh })
+      .then((t) => {
+        this.oauth = Feedly.toOAuth(t, this.oauth);
+        this.token = this.oauth.access;
+        this.onOAuth?.(this.oauth);
+      })
+      .catch((e) => {
+        if (e.status === 0 || e.status === 403) throw e; // network or proxy problem: keep the session
+        this.onAuthLost?.();
+        throw new ApiError('Your Feedly session expired. Please sign in again.', 401);
+      })
+      .finally(() => { this._refreshing = null; });
+    return this._refreshing;
+  }
+
+  async ensureFresh() {
+    if (this.oauth?.refresh && this.oauth.expires - Date.now() < 5 * 60 * 1000) await this.refreshTokens();
+  }
+
+  async req(path, opts = {}) {
+    await this.ensureFresh();
+    try {
+      return await this.request(path, opts);
+    } catch (e) {
+      if (e.status === 401 && this.oauth?.refresh && !opts._retried) {
+        await this.refreshTokens();
+        return this.req(path, { ...opts, _retried: true });
+      }
+      throw e;
+    }
+  }
+
+  async request(path, { method = 'GET', params, body } = {}) {
     const url = new URL(this.base + path);
     if (params) {
       for (const [k, v] of Object.entries(params)) {

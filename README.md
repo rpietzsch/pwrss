@@ -18,10 +18,25 @@ A fast, gesture-driven PWA reader for your **Feedly** account, inspired by Reede
 
 ## Setup
 
-### 1. Get a Feedly token
+### 1. Get Feedly API access
 
-Open <https://feedly.com/v3/auth/dev> while logged in to Feedly and copy the access token.
-Developer tokens expire after about 30 days; paste the new one in Settings when Pwrss tells you it was rejected.
+Feedly has restricted its API, so what works depends on your account. Pwrss supports two ways in:
+
+**A. Sign in with Feedly (OAuth, recommended)** — the regular login: tap *Sign in with Feedly* in Settings, log in on
+Feedly, and you're back in the app. Sessions refresh automatically, so there's no 30-day token to replace.
+It needs an OAuth **client ID and secret issued by Feedly** for your own app; Feedly now approves these on request.
+
+1. Request API access/an OAuth client from Feedly (see <https://developers.feedly.com/>). Ask for the redirect URI
+   `https://rpietzsch.github.io/pwrss/` (it must match exactly, including the trailing slash).
+2. In the Cloudflare Worker → Settings → Variables and Secrets, add two **Secrets**: `FEEDLY_CLIENT_ID` and
+   `FEEDLY_CLIENT_SECRET`. The secret stays in the Worker; the browser never sees it.
+3. In Pwrss → Settings, enter the proxy URL (and key), then tap **Sign in with Feedly**.
+
+**B. Access token (fallback)** — if your account can create one at <https://feedly.com/v3/auth/dev> (it may need a
+paid plan), paste it under *Use an access token instead*. It expires after about 30 days.
+
+> Don't reuse another app's OAuth credentials. They're tied to that app and its redirect address, and using them
+> breaks Feedly's terms.
 
 ### 2. Deploy the proxy <a id="proxy"></a>
 
@@ -29,6 +44,7 @@ Feedly's API does not send CORS headers, so a web app can't call it from the bro
 Pwrss uses a tiny [Cloudflare Worker](worker/feedly-proxy.js) (the free plan is plenty) that:
 
 - forwards `/v3/*` to `https://api.feedly.com/v3/*` and adds CORS headers
+- handles the OAuth code exchange and refresh (`/auth/*`), so the client secret never reaches the browser
 - serves `/fetch?url=…` so Reader mode can download article pages
 
 Deploy it either way:
@@ -56,8 +72,8 @@ worker as an open proxy.
 
 ### 3. Connect
 
-Open Pwrss → Settings, paste the token, the worker URL (e.g. `https://pwrss-proxy.<you>.workers.dev`) and the
-proxy key if you set one. Then *Add to Home Screen* (iOS Safari: Share → Add to Home Screen).
+Open Pwrss → Settings, enter the worker URL (e.g. `https://pwrss-proxy.<you>.workers.dev`) and the
+proxy key if you set one, then sign in (or paste a token). Then *Add to Home Screen* (iOS Safari: Share → Add to Home Screen).
 
 ## Development
 
@@ -66,7 +82,7 @@ Plain HTML/CSS/ES modules — no build step needed to develop. Tasks use [Task](
 
 ```sh
 task dev            # serve the source tree on http://localhost:8080 — click "Try the demo"
-task check          # syntax check + Playwright smoke test (demo mode)
+task check          # syntax check, worker unit tests, Playwright end-to-end tests
 task build          # build the deployable site into _site/
 task preview        # build and serve _site/
 task clean          # remove build output
@@ -89,7 +105,8 @@ js/gestures.js      swipe rows, long-press, edge-back, flick, pull-to-refresh
 js/reader.js        DOMPurify sanitizing + Readability reader mode
 js/demo.js          demo backend
 scripts/build.sh    build into _site/ (used by task build and CI)
-tests/smoke.cjs     end-to-end smoke test
+tests/smoke.cjs     end-to-end tests (demo mode, mocked OAuth)
+tests/worker.cjs    unit tests for the proxy worker
 tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)
 worker/             Cloudflare Worker proxy

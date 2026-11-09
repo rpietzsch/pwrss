@@ -97,10 +97,6 @@
       <div class="dlg-body">
         <section>
           <h3>Feedly account</h3>
-          <label>Access token
-            <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="Paste your Feedly developer token">
-          </label>
-          <p class="hint">Get one at <a href="https://feedly.com/v3/auth/dev" target="_blank" rel="noopener">feedly.com/v3/auth/dev</a>. Developer tokens expire after ~30 days.</p>
           <label>Proxy URL
             <input type="url" name="proxy" spellcheck="false" placeholder="https://pwrss-proxy.you.workers.dev">
           </label>
@@ -108,6 +104,17 @@
             <input type="password" name="proxyKey" autocomplete="off" spellcheck="false">
           </label>
           <p class="hint">Feedly's API doesn't allow browser apps to call it directly (no CORS), so Pwrss talks to it through your own tiny Cloudflare Worker. It also fetches full pages for Reader mode. See the <a href="https://github.com/rpietzsch/pwrss#proxy" target="_blank" rel="noopener">README</a>.</p>
+          <div class="signin">
+            <button type="button" class="primary" data-action="login" id="signin-btn">Sign in with Feedly</button>
+            <p class="hint" id="signin-status"></p>
+          </div>
+          <details class="token-alt">
+            <summary>Use an access token instead</summary>
+            <label>Access token
+              <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="Feedly access token">
+            </label>
+            <p class="hint">For accounts that can create a developer token at <a href="https://feedly.com/v3/auth/dev" target="_blank" rel="noopener">feedly.com/v3/auth/dev</a>. It expires after ~30 days.</p>
+          </details>
         </section>
         <section>
           <h3>Reading</h3>
