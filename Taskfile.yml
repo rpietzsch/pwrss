@@ -40,7 +40,7 @@ tasks:
   lint:
     desc: Syntax-check all JavaScript
     cmds:
-      - for f in js/*.js sw.js worker/*.js scripts/*.cjs tests/*.cjs; do node --check "$f" || exit 1; done
+      - for f in js/*.js sw.js worker/*.mjs scripts/*.cjs tests/*.cjs; do node --check "$f" || exit 1; done
 
   test:
     desc: Worker unit tests + end-to-end smoke test (Playwright/Chromium)

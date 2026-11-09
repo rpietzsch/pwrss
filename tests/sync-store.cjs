@@ -24,8 +24,8 @@ function makeState() {
 (async () => {
   const origWarn = process.emitWarning;
   process.emitWarning = () => {}; // node:sqlite prints an experimental warning
-  const { SyncStore } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'sync-store.js')).href);
-  const { default: w } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.js')).href);
+  const { SyncStore } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'sync-store.mjs')).href);
+  const { default: w } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.mjs')).href);
   process.emitWarning = origWarn;
 
   const store = new SyncStore(makeState());

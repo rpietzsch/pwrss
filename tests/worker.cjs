@@ -1,4 +1,4 @@
-// Unit tests for worker/feedly-proxy.js with a mocked upstream (no network).
+// Unit tests for worker/feedly-proxy.mjs with a mocked upstream (no network).
 const fs = require('fs');
 const path = require('path');
 
@@ -6,7 +6,7 @@ let failures = 0;
 const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (!ok) failures++; };
 
 (async () => {
-  const { default: w } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.js')).href);
+  const { default: w } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.mjs')).href);
 
   const calls = [];
   globalThis.fetch = async (url, init) => {

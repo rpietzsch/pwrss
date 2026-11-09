@@ -23,7 +23,7 @@ can't fetch feeds or article pages from other sites directly (CORS).
 
 ### 1. Deploy the proxy <a id="proxy"></a>
 
-The [Cloudflare Worker](worker/feedly-proxy.js) does four things:
+The [Cloudflare Worker](worker/feedly-proxy.mjs) does four things:
 
 - `POST /feeds` — fetches your RSS/Atom feeds in batches, with ETag/Last-Modified support
 - `/fetch?url=…` — downloads article pages for Reader mode
@@ -137,7 +137,7 @@ tests/sync.cjs      two devices syncing through the real Worker code
 tests/worker.cjs    unit tests for the proxy worker
 tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)
-worker/             Cloudflare Worker: proxy (feeds, pages) and the sync Durable Object (sync-store.js)
+worker/             Cloudflare Worker: proxy (feeds, pages) and the sync Durable Object (sync-store.mjs)
 vendor/             Readability (Apache-2.0), DOMPurify (Apache-2.0/MPL-2.0), Lucide icon sprite (ISC)
 ```
 

@@ -14,7 +14,7 @@
 //   PROXY_KEY        optional shared secret; clients must send X-Proxy-Key
 //   FEEDLY_CLIENT_ID / FEEDLY_CLIENT_SECRET   OAuth client issued by Feedly (store as secrets)
 
-import { SyncStore } from './sync-store.js';
+import { SyncStore } from './sync-store.mjs';
 export { SyncStore }; // Durable Object class (bound as SYNC in wrangler.toml)
 
 const FEEDLY = 'https://api.feedly.com';

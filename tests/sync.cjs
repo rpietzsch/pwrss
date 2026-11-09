@@ -42,8 +42,8 @@ server.listen(0, async () => {
   // ---- the real Worker, with the real Durable Object logic on SQLite ----
   process.emitWarning = () => {};
   const { DatabaseSync } = require('node:sqlite');
-  const { default: worker } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.js')).href);
-  const { SyncStore } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'sync-store.js')).href);
+  const { default: worker } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.mjs')).href);
+  const { SyncStore } = await import(pathToFileURL(path.join(__dirname, '..', 'worker', 'sync-store.mjs')).href);
   const db = new DatabaseSync(':memory:');
   const state = { storage: { sql: { exec: (q, ...b) => { const rows = db.prepare(q).all(...b); return { toArray: () => rows, one: () => rows[0] }; } } } };
   const dobj = new SyncStore(state);

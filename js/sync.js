@@ -1,4 +1,4 @@
-// Client side of cross-device sync (server: worker/sync-store.js, spec: tasks/specs.md#sync-across-devices).
+// Client side of cross-device sync (server: worker/sync-store.mjs, spec: tasks/specs.md#sync-across-devices).
 import { ApiError } from './api.js';
 
 const PUSH_BATCH = 2000;
