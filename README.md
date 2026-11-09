@@ -64,7 +64,7 @@ Things to know:
 - There is no sync between devices; export OPML any time to back up or move your feed list.
 - Feeds only offer their latest items, so history starts when you first import.
 - Feeds refresh when you open the app (if it's been 15+ minutes), when you return to it, and when you pull down.
-- Feeds that fail to load are listed in Settings with the reason.
+- Feeds that fail to load are listed in Settings → Feeds with the reason; you can retry them, or remove them one by one or all at once. *Manage feeds* (list icon in the sources header) handles adding, renaming, re-categorizing and reordering.
 
 ### Optional: Feedly account as the source
 

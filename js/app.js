@@ -775,8 +775,10 @@ async function updateFeedStatus() {
     ? `${st.feeds} feed${st.feeds === 1 ? '' : 's'} · ${when}${st.failed.length ? ` · ${st.failed.length} failed` : ''}`
     : 'No local feeds yet.';
   const ul = $('#feeds-errors');
-  ul.innerHTML = st.failed.slice(0, 20).map((f) => `<li>${esc(f.title)} — ${esc(f.error)}</li>`).join('');
+  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span>${esc(f.title)}<small>${esc(f.error)}</small></span><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></li>`).join('');
   ul.hidden = !st.failed.length;
+  $('#feeds-failed-actions').hidden = !st.failed.length;
+  $('#remove-failed-btn').textContent = `Remove all failed (${st.failed.length})`;
 }
 
 async function useLocalAndRestart() {
@@ -804,7 +806,46 @@ $('#opml-file').addEventListener('change', async (ev) => {
   } catch (e) { fail(e); }
 });
 
+$('#feeds-errors').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-failed-del]');
+  if (!b) return;
+  const li = b.closest('li');
+  try {
+    const lf = await getLocal();
+    const f = lf.feeds.get(li.dataset.id);
+    await lf.removeFeed(li.dataset.id);
+    toast(`Removed “${f?.title || 'feed'}”`, 1500);
+    await syncAfterChange();
+    updateFeedStatus();
+  } catch (e) { fail(e); }
+});
+
 Object.assign(actions, {
+  'retry-failed': async () => {
+    try {
+      collectForm();
+      const lf = await getLocal();
+      const n = lf.failed.length;
+      if (!n) return;
+      toast(`Retrying ${n} feed${n === 1 ? '' : 's'}…`, 30000);
+      const r = await lf.retryFailed();
+      toast(r.failed ? `${r.fetched} recovered, ${r.failed} still failing` : `All ${r.fetched} recovered`, 3000);
+      await syncAfterChange();
+      updateFeedStatus();
+    } catch (e) { fail(e); }
+  },
+  'remove-failed': async () => {
+    try {
+      const lf = await getLocal();
+      const n = lf.failed.length;
+      if (!n) return;
+      if (!confirm(`Remove ${n} failed feed${n === 1 ? '' : 's'}? Their unsaved articles are deleted; saved ones stay.`)) return;
+      await lf.removeFeeds(lf.failed.map((f) => f.id));
+      toast(`Removed ${n} feed${n === 1 ? '' : 's'}`, 2000);
+      await syncAfterChange();
+      updateFeedStatus();
+    } catch (e) { fail(e); }
+  },
   'export-opml': async () => {
     try {
       const lf = await getLocal();
@@ -876,16 +917,19 @@ async function openManage() {
 function collectFormIfOpen() { if (el.settings.open) collectForm(); }
 
 // After any change: refresh sources/counts/list behind the dialog.
-async function afterManage() {
+async function syncAfterChange() {
   if (S.api?.local) {
     await loadMeta();
     const valid = S.streamId === S.api.allId() || S.streamId === S.api.savedId() || S.streamId === TODAY
       || S.subById.has(S.streamId) || S.cats.some((c) => c.id === S.streamId);
     if (!valid) S.streamId = S.api.allId();
     await openStream(S.streamId, { keepScroll: true });
-  } else {
+  } else if (dlgManage.open) {
     manageDirty = true;
   }
+}
+async function afterManage() {
+  await syncAfterChange();
   await renderManage();
 }
 

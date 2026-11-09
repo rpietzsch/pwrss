@@ -60,7 +60,7 @@ export class LocalFeeds {
       for (const f of feeds) this.feeds.set(f.id, f);
       for (const e of entries) this.entries.set(e.id, e);
       this.catOrder = meta.find((m) => m.id === 'categories')?.labels || [];
-      this.failed = feeds.filter((f) => f.error).map((f) => ({ title: f.title || f.url, error: f.error }));
+      this.failed = feeds.filter((f) => f.error).map((f) => ({ id: f.id, title: f.title || f.url, error: f.error }));
       await this.normalize();
     })();
     return this._init;
@@ -225,18 +225,33 @@ export class LocalFeeds {
     return { feed: f, added: r.added };
   }
 
-  async removeFeed(id) {
+  removeFeed(id) { return this.removeFeeds([id]); }
+
+  /** Remove feeds and their unsaved articles (saved ones stay, keeping their feed name). */
+  async removeFeeds(ids) {
     await this.init();
-    const f = this.feeds.get(id);
-    if (!f) return;
-    this.feeds.delete(id);
-    const cat = f.category;
-    const drop = [...this.entries.values()].filter((e) => e.feedId === id && !e.tags.length);
+    const gone = new Set();
+    const cats = new Set();
+    for (const id of ids) {
+      const f = this.feeds.get(id);
+      if (!f) continue;
+      gone.add(id);
+      cats.add(f.category || null);
+      this.feeds.delete(id);
+    }
+    if (!gone.size) return 0;
+    const drop = [...this.entries.values()].filter((e) => gone.has(e.feedId) && !e.tags.length);
     for (const e of drop) this.entries.delete(e.id);
     await store.del('entries', drop.map((e) => e.id));
-    await store.del('feeds', [id]);
-    await this.renumber(cat);
-    this.failed = this.failed.filter((x) => x.title !== (f.title || f.url));
+    await store.del('feeds', [...gone]);
+    for (const c of cats) await this.renumber(c);
+    this.failed = this.failed.filter((x) => !gone.has(x.id));
+    return gone.size;
+  }
+
+  /** Re-fetch only the feeds that failed last time. */
+  retryFailed(opts = {}) {
+    return this.refreshAll({ ...opts, ids: this.failed.map((f) => f.id) });
   }
 
   async renameFeed(id, title) {
@@ -385,7 +400,7 @@ export class LocalFeeds {
     if (fatal) throw fatal;
 
     await this.prune();
-    this.failed = [...this.feeds.values()].filter((f) => f.error).map((f) => ({ title: f.title || f.url, error: f.error }));
+    this.failed = [...this.feeds.values()].filter((f) => f.error).map((f) => ({ id: f.id, title: f.title || f.url, error: f.error }));
     if (!ids) { try { localStorage.setItem(LAST_KEY, String(Date.now())); } catch {} }
     return out;
   }

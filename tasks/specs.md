@@ -13,6 +13,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - The proxy's `/feeds` endpoint fetches feeds in batches of up to 25. The app parses RSS 2.0, RSS 1.0 (RDF) and Atom. A feed that can't be fetched or parsed shows up as failed in Settings and never blocks the others.
 - Refresh uses conditional requests (ETag / Last-Modified), so unchanged feeds cost almost nothing.
 - Refresh happens on launch when the last refresh is more than 15 minutes old, when returning to the app after more than 15 minutes, and on pull-to-refresh or the refresh button. The refresh button always fetches every feed.
+- Failed feeds are listed in Settings → Feeds with their reason. The list shows all of them (scrollable). Each has a remove button that deletes that feed at once, without confirmation. **Retry failed** re-fetches only the failed feeds. **Remove all failed** asks for confirmation with the count, then removes them. Removing a feed deletes its unsaved articles; saved ones stay. The sources list and counts update after each removal.
 - Progress shows as "Fetching feeds n/N…". The finished refresh reports how many new articles arrived and how many feeds failed.
 - An automatic refresh reloads the list only when it is scrolled to the top. Otherwise it shows "N new articles" and leaves the list alone.
 - When a feed is fetched for the first time, only articles from the last 7 days are unread. Older ones start as read.

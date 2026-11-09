@@ -274,8 +274,22 @@ server.listen(0, async () => {
     check('re-import adds the missing feed and fetches it', labels4.includes('Alpha Blog'), labels4);
     check('re-import keeps edits (renamed, moved, uncategorized stay put)', labels4.includes('Epsilon Renamed') && at('Delta') > at('Tech') && at('Delta') < at('Uncategorized') && at('Gamma') > at('Uncategorized'), labels4);
 
-    p.once('dialog', (d) => d.accept());
+    // ---------- failed feeds: list, retry, remove ----------
     await p.click('.bar [data-action="settings"]');
+    await p.waitForSelector('#feeds-errors li');
+    check('failed list shows every failed feed, each with a remove button', (await p.locator('#feeds-errors li').count()) === 2 && (await p.locator('#feeds-errors [data-failed-del]').count()) === 2);
+    seen.requests.length = 0;
+    await p.click('[data-action="retry-failed"]');
+    await p.waitForFunction(() => /2 failed/.test(document.querySelector('#feeds-status')?.textContent || ''));
+    check('retry re-fetches only the failed feeds', seen.requests.length === 1 && seen.requests[0].length === 2 && seen.requests[0].every((f) => /dead|loose/.test(f.url)), seen.requests);
+    await p.click('#feeds-errors li:has-text("Dead Feed") [data-failed-del]');
+    await p.waitForFunction(() => /1 failed/.test(document.querySelector('#feeds-status')?.textContent || ''));
+    check('remove a single failed feed', !(await p.textContent('#feeds-errors')).includes('Dead Feed'));
+    p.once('dialog', (d) => d.accept());
+    await p.click('[data-action="remove-failed"]');
+    await p.waitForFunction(() => !document.querySelector('#feeds-errors li'));
+    check('remove all failed hides the failed list', await p.locator('#feeds-failed-actions').isHidden() && !(await p.textContent('#feeds-status')).includes('failed'));
+    p.once('dialog', (d) => d.accept());
     await p.click('[data-action="reset-local"]');
     await p.waitForSelector('.welcome');
     check('reset returns to welcome', true);

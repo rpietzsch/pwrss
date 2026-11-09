@@ -123,6 +123,10 @@
           </div>
           <button type="button" class="ghost wide" data-action="manage">Manage feeds…</button>
           <p class="hint" id="feeds-status"></p>
+          <div class="btn-row" id="feeds-failed-actions" hidden>
+            <button type="button" class="ghost" data-action="retry-failed">Retry failed</button>
+            <button type="button" class="ghost danger" data-action="remove-failed" id="remove-failed-btn">Remove all failed</button>
+          </div>
           <ul class="feed-errors" id="feeds-errors" hidden></ul>
           <p class="hint">Export your subscriptions from Feedly at <a href="https://feedly.com/i/opml" target="_blank" rel="noopener">feedly.com/i/opml</a> and import the file here. Articles and read state stay on this device.</p>
           <button type="button" class="ghost danger" data-action="reset-local">Delete local feeds and articles</button>
@@ -187,7 +191,7 @@
       </div>
       <footer class="dlg-foot">
         <button type="button" data-action="demo" class="ghost">Try demo</button>
-        <button type="button" data-action="logout" class="ghost danger">Sign out of Feedly</button>
+        <button type="button" data-action="logout" class="ghost danger" title="Sign out of Feedly">Sign out</button>
         <span class="spacer"></span>
         <button value="save" class="primary">Save</button>
       </footer>
