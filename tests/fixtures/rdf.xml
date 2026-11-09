@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel rdf:about="https://gamma.example/"><title>Gamma RDF</title><link>https://gamma.example/</link></channel>
+  <item rdf:about="https://gamma.example/1"><title>RDF item</title><link>https://gamma.example/1</link><description>RDF description</description><dc:date>DATE_ISO_NOW</dc:date></item>
+</rdf:RDF>

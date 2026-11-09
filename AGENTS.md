@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents (and humans) working on Pwrss, a static PWA reader for Feedly.
+Guidance for AI coding agents (and humans) working on Pwrss, a static PWA feed reader (local OPML feeds by default, optional Feedly source).
 
 ## Project basics
 
@@ -8,8 +8,8 @@ Guidance for AI coding agents (and humans) working on Pwrss, a static PWA reader
 - Third-party code lives in `vendor/` and is updated with `task vendor`. Don't edit vendored files by hand.
 - Use `task` targets for the lifecycle: `task dev`, `task check`, `task build`, `task preview`, `task clean`.
 - Run `task check` before committing. When you add a user-facing feature, add a check for it to `tests/smoke.cjs` that runs in demo mode.
-- Keep `js/demo.js` in step with `js/api.js`: the demo backend must implement every method the app calls.
-- Feedly has no CORS, so every network call goes through the proxy in `worker/`. Never send the user's token anywhere else.
+- Backends (`js/local.js`, `js/api.js` for Feedly, `js/demo.js`) share one interface. Keep them in step: the demo backend must implement every method the app calls. `refreshAll` exists only on the local backend and is feature-checked.
+- Browsers can't fetch feeds, article pages or Feedly directly (CORS), so every network call goes through the proxy in `worker/`. Never send the user's token anywhere else.
 - Sanitize all feed and page HTML with `sanitize()` in `js/reader.js` before inserting it into the DOM.
 - Theming uses the CSS variables in `styles.css`. Every color needs a light and a dark value, and `auto` (system) is the default.
 

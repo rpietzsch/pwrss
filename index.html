@@ -96,14 +96,36 @@
       </header>
       <div class="dlg-body">
         <section>
-          <h3>Feedly account</h3>
+          <h3>Feeds</h3>
+          <label class="row"><span>Source</span>
+            <select name="source"><option value="local">Local feeds (OPML)</option><option value="feedly">Feedly account</option></select>
+          </label>
+          <div class="btn-row">
+            <label class="btn ghost">Import OPML…<input type="file" id="opml-file" accept=".opml,.xml,text/xml,application/xml,text/x-opml,*/*" hidden></label>
+            <button type="button" class="ghost" data-action="export-opml">Export OPML</button>
+          </div>
+          <div class="add-row">
+            <input type="url" id="add-feed-url" form="none" placeholder="Add feed URL" spellcheck="false" autocapitalize="off">
+            <button type="button" class="ghost" data-action="add-feed">Add</button>
+          </div>
+          <p class="hint" id="feeds-status"></p>
+          <ul class="feed-errors" id="feeds-errors" hidden></ul>
+          <p class="hint">Export your subscriptions from Feedly at <a href="https://feedly.com/i/opml" target="_blank" rel="noopener">feedly.com/i/opml</a> and import the file here. Articles and read state stay on this device.</p>
+          <button type="button" class="ghost danger" data-action="reset-local">Delete local feeds and articles</button>
+        </section>
+        <section>
+          <h3>Proxy</h3>
           <label>Proxy URL
             <input type="url" name="proxy" spellcheck="false" placeholder="https://pwrss-proxy.you.workers.dev">
           </label>
           <label>Proxy key <small>(optional)</small>
             <input type="password" name="proxyKey" autocomplete="off" spellcheck="false">
           </label>
-          <p class="hint">Feedly's API doesn't allow browser apps to call it directly (no CORS), so Pwrss talks to it through your own tiny Cloudflare Worker. It also fetches full pages for Reader mode. See the <a href="https://github.com/rpietzsch/pwrss#proxy" target="_blank" rel="noopener">README</a>.</p>
+          <p class="hint">Browsers can't fetch feeds or article pages from other sites directly (CORS), so Pwrss uses your own tiny Cloudflare Worker for feeds and Reader mode. See the <a href="https://github.com/rpietzsch/pwrss#proxy" target="_blank" rel="noopener">README</a>.</p>
+        </section>
+        <section>
+          <h3>Feedly account <small>(optional)</small></h3>
+          <p class="hint">Only needed if you pick “Feedly account” as source. Feedly now restricts API access, so this may not be available for your account.</p>
           <div class="signin">
             <button type="button" class="primary" data-action="login" id="signin-btn">Sign in with Feedly</button>
             <p class="hint" id="signin-status"></p>
@@ -113,7 +135,6 @@
             <label>Access token
               <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="Feedly access token">
             </label>
-            <p class="hint">For accounts that can create a developer token at <a href="https://feedly.com/v3/auth/dev" target="_blank" rel="noopener">feedly.com/v3/auth/dev</a>. It expires after ~30 days.</p>
           </details>
         </section>
         <section>
@@ -152,7 +173,7 @@
       </div>
       <footer class="dlg-foot">
         <button type="button" data-action="demo" class="ghost">Try demo</button>
-        <button type="button" data-action="logout" class="ghost danger">Sign out</button>
+        <button type="button" data-action="logout" class="ghost danger">Sign out of Feedly</button>
         <span class="spacer"></span>
         <button value="save" class="primary">Save</button>
       </footer>

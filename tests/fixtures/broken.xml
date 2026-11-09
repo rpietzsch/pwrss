@@ -1,0 +1,4 @@
+ <?xml version="1.0"?>
+<rss version="2.0"><channel><title>Delta &nbsp; Broken</title><link>https://delta.example/</link>
+<item><title>Bare & ampersand</title><link>https://delta.example/1</link><guid>d1</guid><pubDate>PUBDATE_NOW</pubDate><description>x&nbsp;y</description></item>
+</channel></rss>

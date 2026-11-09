@@ -1,5 +1,7 @@
 import { Feedly, ApiError } from './api.js';
 import { DemoFeedly } from './demo.js';
+import { LocalFeeds } from './local.js';
+import { parseOPML } from './opml.js';
 import { sanitize, readerView } from './reader.js';
 import { swipeRows, edgeBack, flick, pullToRefresh } from './gestures.js';
 
@@ -13,7 +15,7 @@ const LS = {
 const DEFAULTS = {
   token: '', proxy: '', proxyKey: '', demo: false, userId: null,
   markOnOpen: true, markOnScroll: false, readerDefault: false, thumbs: true,
-  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom', oauth: null,
+  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom', oauth: null, source: 'local',
 };
 
 const S = {
@@ -216,7 +218,7 @@ function renderSources() {
   if (uncategorized.length) {
     html += `<div class="src-group"><div class="cat-row plain"><span class="src-label muted">Uncategorized</span></div><div class="feeds">${feedRows(uncategorized)}</div></div>`;
   }
-  if (S.api.demo) html += `<p class="demo-note">Demo mode · <a href="#" data-action="settings">connect Feedly</a></p>`;
+  if (S.api.demo) html += `<p class="demo-note">Demo mode · <a href="#" data-action="settings">import your feeds</a></p>`;
   el.sourceList.innerHTML = html;
 }
 
@@ -365,6 +367,7 @@ async function loadMore(fresh = false) {
 }
 
 function cacheStream() {
+  if (S.api.local || S.api.demo) return;
   LS.set('cache.entries', { streamId: S.streamId, filter: S.filter, items: S.entries.slice(0, 80) });
 }
 
@@ -430,7 +433,7 @@ function queue(id, key, val) {
 }
 let flushing = false;
 async function flush() {
-  if (flushing || !S.api || !navigator.onLine) return;
+  if (flushing || !S.api || (!navigator.onLine && !S.api.local)) return;
   const snap = JSON.parse(JSON.stringify(S.pending));
   const groups = { markAsRead: [], keepUnread: [], markAsSaved: [], markAsUnsaved: [] };
   for (const [id, p] of Object.entries(snap)) {
@@ -632,8 +635,8 @@ const actions = {
   login: () => login(),
   demo: () => { S.settings.demo = true; LS.set('settings', S.settings); el.settings.close(); start(); },
   logout: () => {
-    if (!confirm('Sign out and remove your token from this device?')) return;
-    S.settings = { ...S.settings, token: '', oauth: null, demo: false, userId: null };
+    if (!confirm('Sign out of Feedly and remove the token from this device? Your local feeds stay.')) return;
+    S.settings = { ...S.settings, token: '', oauth: null, demo: false, userId: null, source: 'local' };
     LS.set('settings', S.settings);
     LS.del('cache.entries'); LS.del('cache.meta'); LS.del('pending'); LS.del('stream');
     S.pending = {};
@@ -742,13 +745,107 @@ async function handleOAuthReturn() {
   }
   try {
     const o = await Feedly.exchangeCode(S.settings.proxy, S.settings.proxyKey, q.get('code'), redirectUri());
-    S.settings = { ...S.settings, oauth: o, demo: false, userId: null };
+    S.settings = { ...S.settings, oauth: o, source: 'feedly', demo: false, userId: null };
     LS.set('settings', S.settings);
     for (const k of ['cache.entries', 'cache.meta', 'pending', 'stream']) LS.del(k);
     S.pending = {}; S.streamId = null;
     toast('Signed in to Feedly', 1800);
   } catch (e) { fail(e); }
 }
+
+// ---------- local feeds management ----------
+let localTmp = null;
+async function getLocal() {
+  const lf = S.api?.local ? S.api : (localTmp ??= new LocalFeeds(S.settings));
+  lf.proxy = (S.settings.proxy || '').replace(/\/+$/, '');
+  lf.proxyKey = S.settings.proxyKey || '';
+  await lf.init();
+  return lf;
+}
+
+async function updateFeedStatus() {
+  let lf;
+  try { lf = await getLocal(); } catch { return; }
+  const st = lf.stats();
+  const when = st.lastRefresh ? (ago(st.lastRefresh) === 'now' ? 'refreshed just now' : `refreshed ${ago(st.lastRefresh)} ago`) : 'not fetched yet';
+  $('#feeds-status').textContent = st.feeds
+    ? `${st.feeds} feed${st.feeds === 1 ? '' : 's'} · ${when}${st.failed.length ? ` · ${st.failed.length} failed` : ''}`
+    : 'No local feeds yet.';
+  const ul = $('#feeds-errors');
+  ul.innerHTML = st.failed.slice(0, 20).map((f) => `<li>${esc(f.title)} — ${esc(f.error)}</li>`).join('');
+  ul.hidden = !st.failed.length;
+}
+
+async function useLocalAndRestart() {
+  S.settings = { ...S.settings, source: 'local', demo: false };
+  LS.set('settings', S.settings);
+  el.form.elements.source.value = 'local';
+  S.streamId = null; LS.del('stream');
+  el.settings.close();
+  await start();
+}
+
+$('#opml-file').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    collectForm();
+    const lf = await getLocal();
+    const r = await lf.importOPML(await file.text());
+    if (!r.total) { toast('No feeds found in that file', 4000); return; }
+    toast(`Imported ${r.added} feed${r.added === 1 ? '' : 's'}${r.updated ? ` (${r.updated} updated)` : ''}`, 2500);
+    await useLocalAndRestart();
+    if (!S.settings.proxy) { toast('Now add your proxy URL in Settings to fetch the feeds.', 6000); openSettings(); }
+  } catch (e) { fail(e); }
+});
+
+$('#add-feed-url').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') { ev.preventDefault(); actions['add-feed'](); }
+});
+
+Object.assign(actions, {
+  'export-opml': async () => {
+    try {
+      const lf = await getLocal();
+      if (!lf.feeds.size) { toast('No local feeds to export'); return; }
+      const url = URL.createObjectURL(new Blob([await lf.exportOPML()], { type: 'text/x-opml' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: 'pwrss-feeds.opml' });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) { fail(e); }
+  },
+  'add-feed': async () => {
+    const input = $('#add-feed-url');
+    const value = input.value.trim();
+    if (!value) return;
+    try {
+      collectForm();
+      const lf = await getLocal();
+      toast('Adding feed…', 30000);
+      const r = await lf.addFeed(value);
+      input.value = '';
+      toast(`Added “${r.feed.title}”`, 2200);
+      if (S.api === lf) {
+        S.settings = { ...S.settings, source: 'local' }; LS.set('settings', S.settings);
+        await loadMeta(); await openStream(S.streamId); updateFeedStatus();
+      } else {
+        await useLocalAndRestart();
+      }
+    } catch (e) { fail(e); }
+  },
+  'reset-local': async () => {
+    if (!confirm('Delete all local feeds, articles and read state from this device?')) return;
+    try {
+      const lf = await getLocal();
+      await lf.reset();
+      localTmp = null;
+      S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null;
+      el.settings.close();
+      await start();
+    } catch (e) { fail(e); }
+  },
+});
 
 // ---------- settings ----------
 function openSettings(welcome = false) {
@@ -763,19 +860,24 @@ function openSettings(welcome = false) {
   $('#signin-status').textContent = signedIn ? 'Signed in with Feedly. The session refreshes automatically.'
     : 'Opens Feedly to sign in. Needs a Feedly OAuth client set up on your proxy (see README).';
   $('.token-alt').open = !signedIn && !!S.settings.token;
+  updateFeedStatus();
   el.settings.classList.toggle('welcome', welcome);
   if (!el.settings.open) el.settings.showModal();
 }
-el.form.addEventListener('submit', (ev) => {
-  if (ev.submitter?.value !== 'save') return;
+function collectForm() {
   const f = el.form;
-  const prev = { ...S.settings };
   for (const k of Object.keys(DEFAULTS)) {
     const input = f.elements[k];
     if (!input) continue;
     S.settings[k] = input.type === 'checkbox' ? input.checked : input.type === 'range' ? Number(input.value) : input.value.trim();
   }
-  const accountChanged = prev.token !== S.settings.token || prev.proxy !== S.settings.proxy || prev.proxyKey !== S.settings.proxyKey;
+  LS.set('settings', S.settings);
+}
+el.form.addEventListener('submit', (ev) => {
+  if (ev.submitter?.value !== 'save') return;
+  const prev = { ...S.settings };
+  collectForm();
+  const accountChanged = ['token', 'proxy', 'proxyKey', 'source'].some((k) => prev[k] !== S.settings[k]);
   if (accountChanged && S.settings.token) { S.settings.demo = false; S.settings.userId = null; }
   LS.set('settings', S.settings);
   applyAppearance();
@@ -807,51 +909,73 @@ async function loadMeta() {
   S.subs = subs || [];
   S.subById = new Map(S.subs.map((s) => [s.id, s]));
   S.counts = new Map(counts.map((c) => [c.id, c.count]));
-  LS.set('cache.meta', { userId: S.api.userId, cats: S.cats, subs: S.subs, counts });
+  if (!S.api.local && !S.api.demo) LS.set('cache.meta', { userId: S.api.userId, cats: S.cats, subs: S.subs, counts });
   renderSources();
 }
 
 let refreshing = false;
-async function refresh() {
+async function refresh({ quiet = false } = {}) {
   if (!S.api || refreshing) return;
   refreshing = true;
   $('[data-action="refresh"]')?.classList.add('spin');
   try {
     await flush();
+    let summary = '';
+    if (S.api.refreshAll) {
+      const r = await S.api.refreshAll({
+        onProgress: (d, t) => { if (!quiet && t > 1 && d < t) toast(`Fetching feeds ${d}/${t}…`, 60000); },
+      });
+      summary = `${r.added ? `${r.added} new article${r.added === 1 ? '' : 's'}` : 'No new articles'}${r.failed ? ` · ${r.failed} feed${r.failed === 1 ? '' : 's'} failed` : ''}`;
+    }
     await loadMeta();
-    await openStream(S.streamId, { keepScroll: false });
+    if (quiet && el.entries.scrollTop > 40) { if (summary && !summary.startsWith('No new')) toast(summary + ' — pull to refresh'); }
+    else { await openStream(S.streamId, { keepScroll: false }); if (summary && (!quiet || !summary.startsWith('No new'))) toast(summary, 2600); }
   } catch (e) { fail(e); } finally {
     refreshing = false;
     $('[data-action="refresh"]')?.classList.remove('spin');
   }
 }
 
+// Local feeds: refresh in the background when the data is stale.
+function autoRefresh() {
+  if (S.api?.local && S.api.feeds.size && Date.now() - S.api.lastRefresh() > 15 * 60 * 1000) refresh({ quiet: true });
+}
+
 async function start() {
   applyAppearance();
   const st = S.settings;
-  if (!st.token && !st.oauth && !st.demo) {
-    S.api = null;
-    el.entries.innerHTML = `<div class="empty-state welcome">
-      <div class="logo"><img src="icons/icon.svg" alt=""></div>
-      <h2>Welcome to Pwrss</h2>
-      <p>A fast, gesture-friendly reader for your Feedly account.</p>
-      <button class="primary" data-action="settings">Connect Feedly</button>
-      <button class="ghost" data-action="demo">Try the demo</button>
-    </div>`;
-    el.listTitle.textContent = 'Pwrss';
-    el.listSub.textContent = '';
-    renderSources();
-    return;
+  const useFeedly = st.source === 'feedly' && (st.token || st.oauth);
+  if (useFeedly) {
+    S.api = new Feedly({
+      ...st,
+      onOAuth: (o) => { S.settings.oauth = o; LS.set('settings', S.settings); },
+      onAuthLost: () => { S.settings.oauth = null; LS.set('settings', S.settings); },
+    });
+  } else if (st.demo) {
+    S.api = new DemoFeedly();
+  } else {
+    S.api = new LocalFeeds(st);
+    try { await S.api.init(); } catch (e) { fail(new Error('Local storage is unavailable in this browser mode.')); }
+    if (!S.api.feeds.size) {
+      S.api = null;
+      S.entries = []; S.byId.clear(); S.counts = new Map(); S.cats = []; S.subs = [];
+      el.entries.innerHTML = `<div class="empty-state welcome">
+        <div class="logo"><img src="icons/icon.svg" alt=""></div>
+        <h2>Welcome to Pwrss</h2>
+        <p>A fast, gesture-friendly feed reader. Start by importing your subscriptions as an OPML file (from Feedly: feedly.com/i/opml).</p>
+        <button class="primary" data-action="settings">Import feeds</button>
+        <button class="ghost" data-action="demo">Try the demo</button>
+      </div>`;
+      el.listTitle.textContent = 'Pwrss';
+      el.listSub.textContent = '';
+      renderSources();
+      return;
+    }
   }
-  S.api = st.demo && !st.token && !st.oauth ? new DemoFeedly() : new Feedly({
-    ...st,
-    onOAuth: (o) => { S.settings.oauth = o; LS.set('settings', S.settings); },
-    onAuthLost: () => { S.settings.oauth = null; LS.set('settings', S.settings); },
-  });
   if (S.api.demo) { S.pending = {}; }
 
   // instant paint from cache
-  const meta = !S.api.demo && LS.get('cache.meta', null);
+  const meta = !S.api.demo && !S.api.local && LS.get('cache.meta', null);
   if (meta && meta.userId) {
     S.api.userId = meta.userId;
     S.cats = meta.cats; S.subs = meta.subs;
@@ -870,7 +994,7 @@ async function start() {
   try {
     if (!S.api.userId || !meta) {
       await S.api.profile();
-      if (!S.api.demo) { st.userId = S.api.userId; LS.set('settings', st); }
+      if (!S.api.demo && !S.api.local) { st.userId = S.api.userId; LS.set('settings', st); }
     }
     if (!S.streamId || !S.streamId.includes(S.api.userId) && !S.streamId.startsWith('feed/') && S.streamId !== TODAY) {
       S.streamId = S.api.allId();
@@ -878,6 +1002,7 @@ async function start() {
     await loadMeta();
     await openStream(S.streamId, { keepScroll: true });
     flush();
+    autoRefresh();
   } catch (e) {
     fail(e);
     if (!S.entries.length) {

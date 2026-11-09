@@ -2,6 +2,7 @@
 //
 //   /v3/*          → https://api.feedly.com/v3/*   (adds CORS headers)
 //   /fetch?url=…   → fetches an article page for Reader mode
+//   POST /feeds    → fetches a batch of RSS/Atom feeds: { feeds: [{ url, etag, modified }] }
 //   /auth/config   → { enabled, clientId } for "Sign in with Feedly"
 //   /auth/token    → exchanges an OAuth code for tokens (holds the client secret)
 //   /auth/refresh  → refreshes an access token
@@ -15,6 +16,9 @@
 const FEEDLY = 'https://api.feedly.com';
 const FEEDLY_AUTH = 'https://cloud.feedly.com/v3/auth/token';
 const MAX_PAGE_BYTES = 5 * 1024 * 1024;
+const MAX_FEED_BYTES = 2 * 1024 * 1024;
+const MAX_FEEDS_PER_REQUEST = 40;
+const FEED_TIMEOUT_MS = 8000;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Pwrss/1.0';
 
 function cors(origin) {
@@ -57,6 +61,14 @@ export default {
     try {
       if (url.pathname.startsWith('/auth/')) return await handleAuth(url, request, env, headers, allowed);
 
+      if (url.pathname === '/feeds' && request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, headers); }
+        const feeds = Array.isArray(body?.feeds) ? body.feeds : null;
+        if (!feeds || feeds.length > MAX_FEEDS_PER_REQUEST) return json({ error: 'bad_feeds' }, 400, headers);
+        return json({ results: await Promise.all(feeds.map(fetchFeed)) }, 200, headers);
+      }
+
       if (url.pathname.startsWith('/v3/')) {
         const upstream = new Request(FEEDLY + url.pathname + url.search, {
           method: request.method,
@@ -97,13 +109,7 @@ export default {
         // decode using the page's charset, re-encode as UTF-8
         const buf = await res.arrayBuffer();
         if (buf.byteLength > MAX_PAGE_BYTES) return new Response('Page too large', { status: 413, headers });
-        let charset = /charset=([^;]+)/i.exec(type)?.[1]?.trim();
-        if (!charset) {
-          const head = new TextDecoder('latin1').decode(buf.slice(0, 2048));
-          charset = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1];
-        }
-        let text;
-        try { text = new TextDecoder(charset || 'utf-8').decode(buf); } catch { text = new TextDecoder().decode(buf); }
+        const text = decode(buf, type);
         return new Response(text, { status: res.status, headers: h });
       }
 
@@ -165,4 +171,43 @@ async function handleAuth(url, request, env, headers, allowed) {
     expires_in: data.expires_in,
     id: data.id,
   }, 200, headers);
+}
+
+function decode(buf, type) {
+  let cs = /charset=([^;]+)/i.exec(type || '')?.[1]?.trim();
+  if (!cs) {
+    const head = new TextDecoder('latin1').decode(buf.slice(0, 2048));
+    cs = /<\?xml[^>]*encoding=["']([\w-]+)/i.exec(head)?.[1] || /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1];
+  }
+  try { return new TextDecoder(cs || 'utf-8').decode(buf); } catch { return new TextDecoder().decode(buf); }
+}
+
+// One feed of a /feeds batch. Never throws: failures become { status: 0, error }.
+async function fetchFeed(f) {
+  const url = f?.url;
+  try {
+    const t = new URL(url);
+    if (!/^https?:$/.test(t.protocol) || isPrivateHost(t.hostname)) return { url, status: 0, error: 'URL not allowed' };
+    const headers = {
+      'User-Agent': UA,
+      Accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5',
+    };
+    if (f.etag) headers['If-None-Match'] = f.etag;
+    if (f.modified) headers['If-Modified-Since'] = f.modified;
+    const res = await fetch(t.href, { headers, redirect: 'follow', signal: AbortSignal.timeout(FEED_TIMEOUT_MS) });
+    if (res.status === 304) return { url, status: 304 };
+    if (!res.ok) return { url, status: res.status, error: `HTTP ${res.status}` };
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > MAX_FEED_BYTES) return { url, status: 0, error: 'Feed too large' };
+    return {
+      url,
+      status: 200,
+      finalUrl: res.url || t.href,
+      etag: res.headers.get('ETag') || null,
+      modified: res.headers.get('Last-Modified') || null,
+      body: decode(buf, res.headers.get('Content-Type')),
+    };
+  } catch (e) {
+    return { url, status: 0, error: e?.name === 'TimeoutError' ? 'Timed out' : (e?.message || 'Fetch failed') };
+  }
 }

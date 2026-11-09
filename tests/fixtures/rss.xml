@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Alpha Blog</title>
+    <link>https://alpha.example/</link>
+    <atom:link rel="self" href="https://alpha.example/feed.xml"/>
+    <item>
+      <title>Fresh &amp; New</title>
+      <link>https://alpha.example/posts/fresh</link>
+      <guid isPermaLink="false">alpha-1</guid>
+      <pubDate>PUBDATE_NOW</pubDate>
+      <dc:creator>Ada</dc:creator>
+      <description><![CDATA[<p>Short summary one.</p>]]></description>
+      <content:encoded><![CDATA[<p>Full body one with <b>markup</b>.</p>]]></content:encoded>
+      <media:thumbnail url="https://alpha.example/img/one.jpg"/>
+    </item>
+    <item>
+      <title>Second post</title>
+      <link>/posts/second</link>
+      <guid>alpha-2</guid>
+      <pubDate>PUBDATE_HOUR_AGO</pubDate>
+      <description>Summary two</description>
+      <enclosure url="https://alpha.example/img/two.png" type="image/png" length="1"/>
+    </item>
+    <item>
+      <title>Ancient post</title>
+      <link>https://alpha.example/posts/ancient</link>
+      <guid>alpha-3</guid>
+      <pubDate>Mon, 05 Jan 2015 10:00:00 GMT</pubDate>
+      <description>Very old</description>
+    </item>
+  </channel>
+</rss>

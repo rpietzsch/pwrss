@@ -1,6 +1,6 @@
 # Pwrss
 
-A fast, gesture-driven PWA reader for your **Feedly** account, inspired by Reeder.
+A fast, gesture-driven PWA feed reader, inspired by Reeder. Import your subscriptions from Feedly (or any reader) as an **OPML** file. No Feedly API access needed.
 
 **Live:** https://rpietzsch.github.io/pwrss/ (tap *Try the demo* to look around without an account)
 
@@ -13,67 +13,66 @@ A fast, gesture-driven PWA reader for your **Feedly** account, inspired by Reede
 - Keyboard: `J`/`K` next/prev · `M` read · `S` save · `R` reader · `V` open · `U` filter · `T` theme · `Shift+A` mark all · `Shift+R` refresh · `Space` page down · `Esc` back
 - Light and dark mode following your system setting by default; one-tap override (System → Light → Dark), plus sepia, text size and serif/sans
 - Toolbars at the bottom of the screen for thumb reach on phones and tablets (switchable to top in Settings)
-- Installable, works offline from cache; read/save changes are queued and synced when back online
+- Installable; your feeds and articles are stored on the device, so you can read offline
 - No build step, no tracking. Your token stays in your browser's localStorage.
 
 ## Setup
 
-### 1. Get Feedly API access
+Pwrss runs entirely in your browser. A small proxy of your own (a free Cloudflare Worker) is needed because browsers
+can't fetch feeds or article pages from other sites directly (CORS).
 
-Feedly has restricted its API, so what works depends on your account. Pwrss supports two ways in:
+### 1. Deploy the proxy <a id="proxy"></a>
 
-**A. Sign in with Feedly (OAuth, recommended)** — the regular login: tap *Sign in with Feedly* in Settings, log in on
-Feedly, and you're back in the app. Sessions refresh automatically, so there's no 30-day token to replace.
-It needs an OAuth **client ID and secret issued by Feedly** for your own app; Feedly now approves these on request.
+The [Cloudflare Worker](worker/feedly-proxy.js) does four things:
 
-1. Request API access/an OAuth client from Feedly (see <https://developers.feedly.com/>). Ask for the redirect URI
-   `https://rpietzsch.github.io/pwrss/` (it must match exactly, including the trailing slash).
-2. In the Cloudflare Worker → Settings → Variables and Secrets, add two **Secrets**: `FEEDLY_CLIENT_ID` and
-   `FEEDLY_CLIENT_SECRET`. The secret stays in the Worker; the browser never sees it.
-3. In Pwrss → Settings, enter the proxy URL (and key), then tap **Sign in with Feedly**.
-
-**B. Access token (fallback)** — if your account can create one at <https://feedly.com/v3/auth/dev> (it may need a
-paid plan), paste it under *Use an access token instead*. It expires after about 30 days.
-
-> Don't reuse another app's OAuth credentials. They're tied to that app and its redirect address, and using them
-> breaks Feedly's terms.
-
-### 2. Deploy the proxy <a id="proxy"></a>
-
-Feedly's API does not send CORS headers, so a web app can't call it from the browser directly.
-Pwrss uses a tiny [Cloudflare Worker](worker/feedly-proxy.js) (the free plan is plenty) that:
-
-- forwards `/v3/*` to `https://api.feedly.com/v3/*` and adds CORS headers
-- handles the OAuth code exchange and refresh (`/auth/*`), so the client secret never reaches the browser
-- serves `/fetch?url=…` so Reader mode can download article pages
+- `POST /feeds` — fetches your RSS/Atom feeds in batches, with ETag/Last-Modified support
+- `/fetch?url=…` — downloads article pages for Reader mode
+- `/auth/*` and `/v3/*` — only for the optional Feedly account source (OAuth code exchange, API pass-through)
+- `/health` — a public check that it's deployed
 
 Deploy it either way:
 
-**Dashboard** — Cloudflare dashboard → Workers & Pages → Create → *Hello World* worker → *Edit code*, paste
-[`worker/feedly-proxy.js`](worker/feedly-proxy.js), deploy. Then under *Settings → Variables* add
-`ALLOWED_ORIGINS = https://rpietzsch.github.io` and optionally a secret `PROXY_KEY`.
+**Git-connected (works from a phone)** — Cloudflare dashboard → Workers & Pages → Create → connect `rpietzsch/pwrss`.
+Worker name `pwrss-proxy`, production branch = the branch you deploy from, **root directory `worker`**, build command
+empty, deploy command `npx wrangler deploy`. Every push redeploys it.
 
 **CLI**
 
 ```sh
 cd worker
 npx wrangler deploy
-npx wrangler secret put PROXY_KEY   # optional
 ```
 
-**Git-connected (no pasting, works from a phone)** — Worker → Settings → Builds → connect `rpietzsch/pwrss`,
-production branch = the branch you deploy from, **root directory `worker`**, build command empty,
-deploy command `npx wrangler deploy`. Every push then redeploys the worker. Add `PROXY_KEY` as a secret under the
-Worker's own Settings → Variables and Secrets (not the Builds page).
+Then, in the Worker's own *Settings → Variables and Secrets* (not the Builds page), add a **Secret** named `PROXY_KEY`
+with a long random value. `ALLOWED_ORIGINS` (set in `wrangler.toml`) already limits use to
+`https://rpietzsch.github.io`; the key stops anyone else from using your Worker. Check it at `https://<your-worker>.workers.dev/health`.
 
-Your token passes through the worker on its way to Feedly; it is never stored there. Because you deploy it to
-your own Cloudflare account, nobody else sees it. `ALLOWED_ORIGINS` and `PROXY_KEY` keep others from using your
-worker as an open proxy.
+### 2. Export your feeds from Feedly
 
-### 3. Connect
+Open <https://feedly.com/i/opml> in the Feedly web app while logged in (or Organize → *As OPML*) and save the file.
+Boards, Read Later items and AI feeds aren't included, and neither is your read history.
+Any other reader's OPML export works too.
 
-Open Pwrss → Settings, enter the worker URL (e.g. `https://pwrss-proxy.<you>.workers.dev`) and the
-proxy key if you set one, then sign in (or paste a token). Then *Add to Home Screen* (iOS Safari: Share → Add to Home Screen).
+### 3. Import and read
+
+Open Pwrss → *Import feeds* (or Settings → Feeds → *Import OPML…*), pick the file, then enter your proxy URL and key in
+Settings. Pwrss fetches all feeds and keeps articles, read and saved state in this browser (IndexedDB). Then
+*Add to Home Screen* (iOS Safari: Share → Add to Home Screen).
+
+Things to know:
+
+- There is no sync between devices; export OPML any time to back up or move your feed list.
+- Feeds only offer their latest items, so history starts when you first import.
+- Feeds refresh when you open the app (if it's been 15+ minutes), when you return to it, and when you pull down.
+- Feeds that fail to load are listed in Settings with the reason.
+
+### Optional: Feedly account as the source
+
+If you do have Feedly API access, set *Source* to **Feedly account** in Settings and either **Sign in with Feedly**
+(OAuth, needs a client ID/secret issued by Feedly, stored as Worker **Secrets** `FEEDLY_CLIENT_ID` and
+`FEEDLY_CLIENT_SECRET`, redirect URI `https://rpietzsch.github.io/pwrss/`) or paste a developer token from
+<https://feedly.com/v3/auth/dev> (may need a paid plan). Feedly has restricted its API, so this may not be available to you.
+Don't reuse another app's OAuth credentials.
 
 ## Development
 
@@ -88,7 +87,7 @@ task preview        # build and serve _site/
 task clean          # remove build output
 task icons          # regenerate PNG icons from icons/icon.svg
 task vendor         # update vendored Readability / DOMPurify
-task worker:deploy  # deploy the Cloudflare proxy
+task worker:deploy  # deploy the Cloudflare proxy (or connect the repo in Cloudflare)
 ```
 
 Run `task` to list everything. See [AGENTS.md](AGENTS.md) for contributor/agent conventions,
@@ -100,12 +99,17 @@ Run `task` to list everything. See [AGENTS.md](AGENTS.md) for contributor/agent 
 index.html          app shell + icons
 styles.css          all styles (themes via CSS variables)
 js/app.js           state, rendering, actions, keyboard
-js/api.js           Feedly API client
+js/local.js         local backend: OPML feeds, fetch, storage (IndexedDB)
+js/feedparse.js     RSS/Atom/RDF parser
+js/opml.js          OPML import/export
+js/store.js         IndexedDB wrapper
+js/api.js           Feedly API client (optional source)
 js/gestures.js      swipe rows, long-press, edge-back, flick, pull-to-refresh
 js/reader.js        DOMPurify sanitizing + Readability reader mode
 js/demo.js          demo backend
 scripts/build.sh    build into _site/ (used by task build and CI)
 tests/smoke.cjs     end-to-end tests (demo mode, mocked OAuth)
+tests/local.cjs     parser, OPML and local-feeds flow tests (mocked proxy)
 tests/worker.cjs    unit tests for the proxy worker
 tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)

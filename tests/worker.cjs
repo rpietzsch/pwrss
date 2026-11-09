@@ -68,5 +68,36 @@ const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (
   r = await w.fetch(req('/fetch?url=http://127.0.0.1/'), env);
   check('private hosts still blocked', r.status === 400);
 
+  // ---- /feeds batch ----
+  const feedBody = '<?xml version="1.0" encoding="ISO-8859-1"?><rss><channel><title>Caf\xe9</title></channel></rss>';
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('notmod')) return new Response(null, { status: 304 });
+    if (u.includes('gone')) return new Response('nope', { status: 404 });
+    if (u.includes('boom')) throw new Error('connect failed');
+    if (u.includes('big')) return new Response(new Uint8Array(3 * 1024 * 1024), { status: 200 });
+    calls.push({ url: u, init });
+    const bytes = Uint8Array.from(feedBody, (c) => c.charCodeAt(0));
+    return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/rss+xml', ETag: '"v1"', 'Last-Modified': 'Tue, 01 Jan 2030 00:00:00 GMT' } });
+  };
+  const post = (feeds) => w.fetch(req('/feeds', { method: 'POST', body: { feeds } }), env);
+  r = await post([
+    { url: 'https://ok.example/feed', etag: '"old"', modified: 'Mon, 01 Jan 2029 00:00:00 GMT' },
+    { url: 'https://notmod.example/f' }, { url: 'https://gone.example/f' }, { url: 'https://boom.example/f' },
+    { url: 'https://big.example/f' }, { url: 'http://127.0.0.1/f' }, { url: 'ftp://x.example/f' }, { url: 'not a url' },
+  ]);
+  const res = (await j(r)).results;
+  const hdr = calls.at(-1).init.headers;
+  check('feeds: ok feed returns body, etag, decoded charset', res[0].status === 200 && res[0].etag === '"v1"' && res[0].body.includes('Café'), res[0]);
+  check('feeds: conditional headers forwarded', hdr['If-None-Match'] === '"old"' && hdr['If-Modified-Since'].includes('2029'));
+  check('feeds: 304 passed through', res[1].status === 304 && !res[1].body);
+  check('feeds: errors reported per feed', res[2].status === 404 && res[3].status === 0 && res[3].error === 'connect failed', [res[2], res[3]]);
+  check('feeds: oversize rejected', res[4].status === 0 && /large/i.test(res[4].error), res[4]);
+  check('feeds: private/non-http/invalid URLs rejected', [5, 6, 7].every((i) => res[i].status === 0), res.slice(5));
+  r = await post(Array.from({ length: 41 }, (_, i) => ({ url: `https://x${i}.example/f` })));
+  check('feeds: batch limited to 40', r.status === 400);
+  r = await w.fetch(req('/feeds', { method: 'POST', body: { feeds: [] }, origin: 'https://evil.example' }), env);
+  check('feeds: origin check applies', r.status === 403);
+
   process.exit(failures ? 1 : 0);
 })();

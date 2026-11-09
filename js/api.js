@@ -181,12 +181,23 @@ export class Feedly {
     return null; // tags etc: caller marks loaded entries individually
   }
 
-  async fetchPage(url) {
-    if (!this.proxy) throw new ApiError('Reader mode needs the proxy (Settings).', 0);
-    const u = new URL(this.proxy + '/fetch');
-    u.searchParams.set('url', url);
-    const res = await fetch(u, { headers: this.proxyKey ? { 'X-Proxy-Key': this.proxyKey } : {} });
-    if (!res.ok) throw new ApiError(`Could not load page (${res.status})`, res.status);
-    return { html: await res.text(), url: res.headers.get('X-Final-Url') || url };
+  fetchPage(url) {
+    return proxyFetchPage(this.proxy, this.proxyKey, url);
   }
+}
+
+// Fetch an article page through the proxy (Reader mode); shared by all backends.
+export async function proxyFetchPage(proxy, proxyKey, url) {
+  const base = (proxy || '').trim().replace(/\/+$/, '');
+  if (!base) throw new ApiError('Reader mode needs the proxy (Settings).', 0);
+  const u = new URL(base + '/fetch');
+  u.searchParams.set('url', url);
+  let res;
+  try {
+    res = await fetch(u, { headers: proxyKey ? { 'X-Proxy-Key': proxyKey } : {} });
+  } catch {
+    throw new ApiError('Could not reach the proxy. Check the proxy URL in Settings.', 0);
+  }
+  if (!res.ok) throw new ApiError(`Could not load page (${res.status})`, res.status);
+  return { html: await res.text(), url: res.headers.get('X-Final-Url') || url };
 }

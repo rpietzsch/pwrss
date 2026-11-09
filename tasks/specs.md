@@ -2,10 +2,28 @@
 
 The current, authoritative behavior of the app. See AGENTS.md for how to maintain this file.
 
+## Local feeds (default source)
+
+- Pwrss works without any Feedly account. The feed list comes from an **OPML file** (Feedly: `feedly.com/i/opml`), imported in Settings → Feeds.
+- OPML folders become categories; feeds at the top level are "Uncategorized". Duplicate feed URLs are merged. Importing again adds new feeds and updates titles/categories without losing articles or read state.
+- Settings can also export the current feeds as OPML, add a single feed by URL (https:// is assumed when the scheme is missing), and delete all local data after confirmation.
+- Articles, feeds and read/saved state are stored on this device (IndexedDB). There is no sync between devices.
+- The proxy's `/feeds` endpoint fetches feeds in batches of up to 25. The app parses RSS 2.0, RSS 1.0 (RDF) and Atom. A feed that can't be fetched or parsed shows up as failed in Settings and never blocks the others.
+- Refresh uses conditional requests (ETag / Last-Modified), so unchanged feeds cost almost nothing.
+- Refresh happens on launch when the last refresh is more than 15 minutes old, when returning to the app after more than 15 minutes, and on pull-to-refresh or the refresh button. The refresh button always fetches every feed.
+- Progress shows as "Fetching feeds n/N…". The finished refresh reports how many new articles arrived and how many feeds failed.
+- An automatic refresh reloads the list only when it is scrolled to the top. Otherwise it shows "N new articles" and leaves the list alone.
+- When a feed is fetched for the first time, only articles from the last 7 days are unread. Older ones start as read.
+- Article identity is the feed plus the item's GUID (or link). Updated items keep their read and saved state.
+- Read, unsaved articles older than 60 days, or beyond the newest 300 of a feed, are pruned. Unread and saved articles are never pruned.
+- Previews use the feed's own content. Reader mode is unchanged: it fetches the article page through the proxy and extracts it with Readability.
+
 ## Accounts and proxy
 
-- The user connects with a Feedly developer access token, entered in Settings and stored only in localStorage.
-- All Feedly API calls (`/v3/*`) and Reader-mode page fetches (`/fetch?url=`) go through the user's proxy worker. With no proxy configured, calls fail with an explanation that points to Settings.
+- Settings has a source: **Local feeds** (default) or **Feedly account**. Feedly needs API access that Feedly now restricts, so it is optional.
+- The proxy is needed for local feeds (CORS) and for Reader mode.
+- With the Feedly source, the user connects with OAuth sign-in or a developer access token (see below). Tokens are stored only in localStorage.
+- All Feedly API calls (`/v3/*`), feed fetches (`/feeds`) and Reader-mode page fetches (`/fetch?url=`) go through the user's proxy worker. With no proxy configured, calls fail with an explanation that points to Settings.
 - **Sign in with Feedly (OAuth)** is the regular login. It needs a Feedly-issued client ID and secret, stored as Worker secrets `FEEDLY_CLIENT_ID` and `FEEDLY_CLIENT_SECRET`. The client secret never reaches the browser.
 - The Settings "Sign in with Feedly" button asks the Worker for `/auth/config`. If the Worker has no client credentials, the app says sign-in isn't set up and points to the README.
 - Sign-in sends the browser to Feedly's authorize page with the app's own URL (origin plus path) as `redirect_uri`, scope `https://cloud.feedly.com/subscriptions` and a random `state` saved locally. That URL must be registered with the Feedly client.
@@ -15,12 +33,12 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - The Worker only accepts a `redirect_uri` whose origin is in `ALLOWED_ORIGINS`.
 - A 401 from Feedly shows "token expired?" and opens Settings.
 - "Try the demo" runs the whole UI against a local fake backend, with no network access to Feedly.
-- "Sign out" removes the token, caches and pending changes.
-- The proxy rejects origins that aren't in `ALLOWED_ORIGINS`, a wrong `X-Proxy-Key` (when one is set), non-http(s) URLs and private hosts. `/health` is public and reports whether origins are restricted and a key is set.
+- "Sign out" removes the Feedly token or session, caches and pending changes, and switches to local feeds. Local data is kept.
+- The proxy rejects origins that aren't in `ALLOWED_ORIGINS`, a wrong `X-Proxy-Key` (when one is set), non-http(s) URLs and private hosts, and limits a `/feeds` request to 40 feeds, 8 seconds and 2 MB per feed. `/health` is public and reports whether origins are restricted and a key is set.
 
 ## Sources
 
-- Smart streams at the top: All (with its unread count), Today (articles since local midnight) and Saved.
+- Sources come from the active backend. Smart streams at the top: All (with its unread count), Today (articles since local midnight) and Saved.
 - Categories follow Feedly's order. Each one can collapse (remembered per device) and shows its unread count. Feeds inside are sorted alphabetically.
 - With the unread filter on, feeds and categories with no unread articles are hidden, except the one currently selected.
 - Subscriptions without a category appear under "Uncategorized".

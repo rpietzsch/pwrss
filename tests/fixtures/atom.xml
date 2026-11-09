@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Beta Journal</title>
+  <link rel="self" href="https://beta.example/atom.xml"/>
+  <link rel="alternate" href="https://beta.example/"/>
+  <updated>UPDATED_NOW</updated>
+  <entry>
+    <title type="html">Entry with &lt;em&gt;markup&lt;/em&gt; title</title>
+    <id>tag:beta.example,2026:1</id>
+    <link rel="alternate" href="https://beta.example/e1"/>
+    <published>UPDATED_NOW</published>
+    <author><name>Lin</name></author>
+    <summary>Atom summary</summary>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>XHTML body</p></div></content>
+  </entry>
+</feed>

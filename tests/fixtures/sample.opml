@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head><title>Feedly export</title></head>
+  <body>
+    <outline text="Tech" title="Tech">
+      <outline type="rss" text="Alpha Blog" title="Alpha Blog" xmlUrl="https://alpha.example/feed.xml" htmlUrl="https://alpha.example/"/>
+      <outline type="rss" text="Beta Journal" title="Beta Journal" xmlUrl="https://beta.example/atom.xml"/>
+    </outline>
+    <outline text="Misc">
+      <outline type="rss" text="Gamma" xmlUrl="https://gamma.example/rdf"/>
+      <outline type="rss" text="Delta" xmlUrl="https://delta.example/feed"/>
+    </outline>
+    <outline type="rss" text="Loose Feed" xmlUrl="https://loose.example/feed"/>
+    <outline type="rss" text="Dead Feed" xmlUrl="https://dead.example/feed"/>
+    <outline type="rss" text="Alpha again" xmlUrl="https://alpha.example/feed.xml"/>
+  </body>
+</opml>
