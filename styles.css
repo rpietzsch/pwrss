@@ -455,3 +455,5 @@ button.wide { width: 100%; margin-bottom: 6px; }
 
 .feed-errors .icon-btn.retry { color: var(--fg-2); }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
+
+.feed-errors .use-hn { display: block; margin-top: 6px; padding: 6px 12px; font-size: 13px; }

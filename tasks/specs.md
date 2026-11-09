@@ -27,6 +27,14 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Read, unsaved articles older than 60 days, or beyond the newest 300 of a feed, are pruned. Unread and saved articles are never pruned.
 - Previews use the feed's own content. Reader mode is unchanged: it fetches the article page through the proxy and extracts it with Readability.
 
+## Hacker News
+
+- Hacker News refuses requests that come from Cloudflare's network (HTTP 419 "Sorry"), so its RSS feed (`news.ycombinator.com/rss`, `hackernews.com/rss`, hnrss.org) can't be fetched through the proxy.
+- A feed whose address is a Hacker News Search API URL (`https://hn.algolia.com/api/v1/search?…` or `search_by_date?…`) is fetched **directly by the browser**, not through the proxy. That API is public and sends CORS headers. It works even when no proxy is set.
+- Each hit becomes an article: the title, the linked story (or the discussion for Ask/Show posts without a link), the author, the time, and a line with points and comments plus a link to the discussion. Reader mode opens the linked story as usual.
+- When a feed on one of those Hacker News hosts fails, its entry in the failed list offers **Use Hacker News API instead**. It switches that feed to the API front page (or the newest stories if the old address had `newest` in it), keeps its category and position, and fetches it at once.
+- Direct fetches get the same failure reporting as proxied ones.
+
 ## Managing feeds
 
 - **Manage feeds** opens from the sources header (local source only) and from Settings → Feeds. It lists categories in order, each with its feeds in order, and Uncategorized last.

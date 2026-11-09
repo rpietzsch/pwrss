@@ -6,8 +6,8 @@ See AGENTS.md for conventions.
 
 ## Next
 
-- [ ] Find the cause of the 'Proxy error 404' on retry for the Hacker News feed (the new error text shows the endpoint and reply) (spec: #accounts-and-proxy)
-- [ ] Feeds that block Cloudflare Worker addresses (Hacker News answers 419, w3.org and Forbes show a Cloudflare block page): offer another egress (e.g. Deno Deploy/Vercel proxy) or a per-feed alternative address (spec: #local-feeds-default-source)
+- [ ] Confirm the earlier 'Proxy error 404' on retry doesn't come back (the error text now shows the endpoint and reply) (spec: #accounts-and-proxy)
+- [ ] Other feeds that block Cloudflare Worker addresses (w3.org, Forbes show a Cloudflare block page): offer another egress (e.g. Deno Deploy/Vercel proxy) or per-feed alternatives (spec: #local-feeds-default-source)
 - [ ] Diagnose why `https://hackernews.com/rss` (redirects to news.ycombinator.com/rss) fails on the deployed Worker: read the reason now shown in Settings after Retry failed (spec: #local-feeds-default-source)
 - [ ] Show a hint per failure type (404/410 = gone for good; 403/530/timeouts may be the site blocking the proxy, so retry later) (spec: #local-feeds-default-source)
 - [ ] Verify local feeds end to end on the deployed site with the real Worker and a real OPML (spec: #local-feeds-default-source)
@@ -29,6 +29,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-09 — Hacker News via the public HN Search API fetched directly by the browser (HN refuses Cloudflare's addresses); one-tap switch in the failed list (spec: #hacker-news)
 - [x] 2026-11-09 — Proxy URL cleaned (trailing slash, pasted /health /feeds /fetch); proxy errors name the endpoint and what the proxy said, 404 explains likely causes (spec: #accounts-and-proxy)
 - [x] 2026-11-09 — Retry feedback: toasts drawn above dialogs (they were hidden behind Settings), progress on Retry failed, per-feed retry in the failed list and Manage feeds, failures name the answering server (spec: #messages)
 - [x] 2026-11-09 — Edit a feed's URL from Manage feeds and the failed list; failure reports show where a redirect ended up (spec: #managing-feeds)

@@ -61,6 +61,7 @@ Settings. Pwrss fetches all feeds and keeps articles, read and saved state in th
 
 Things to know:
 
+- Some sites refuse requests from Cloudflare's network (Hacker News answers `419 Sorry`; W3C and Forbes show a "you have been blocked" page). Those feeds show up in the failed list with the reason. For **Hacker News**, tap *Use Hacker News API instead* on its entry: the browser then reads the public HN Search API directly, with no proxy involved.
 - There is no sync between devices; export OPML any time to back up or move your feed list.
 - Feeds only offer their latest items, so history starts when you first import.
 - Feeds refresh when you open the app (if it's been 15+ minutes), when you return to it, and when you pull down.
@@ -101,6 +102,7 @@ styles.css          all styles (themes via CSS variables)
 js/app.js           state, rendering, actions, keyboard
 js/local.js         local backend: OPML feeds, fetch, storage (IndexedDB)
 js/feedparse.js     RSS/Atom/RDF parser
+js/hnapi.js         Hacker News Search API source (fetched by the browser)
 js/opml.js          OPML import/export
 js/store.js         IndexedDB wrapper
 js/api.js           Feedly API client (optional source)

@@ -2,6 +2,7 @@ import { Feedly, ApiError, cleanProxy } from './api.js';
 import { DemoFeedly } from './demo.js';
 import { LocalFeeds } from './local.js';
 import { parseOPML } from './opml.js';
+import { isHNHost, hnApiReplacement } from './hnapi.js';
 import { sanitize, readerView } from './reader.js';
 import { swipeRows, edgeBack, flick, pullToRefresh } from './gestures.js';
 
@@ -783,7 +784,7 @@ async function updateFeedStatus() {
     ? `${st.feeds} feed${st.feeds === 1 ? '' : 's'} · ${when}${st.failed.length ? ` · ${st.failed.length} failed` : ''}`
     : 'No local feeds yet.';
   const ul = $('#feeds-errors');
-  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span class="msg">${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small></span><span class="ctl"><button type="button" class="icon-btn retry" data-failed-retry aria-label="Retry ${esc(f.title)}" title="Retry this feed"><svg><use href="${SPRITE}#i-refresh"/></svg></button><button type="button" class="icon-btn edit" data-failed-edit aria-label="Edit URL of ${esc(f.title)}" title="Edit feed URL"><svg><use href="${SPRITE}#i-link"/></svg></button><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></span></li>`).join('');
+  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span class="msg">${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small>${isHNHost(f.url) ? '<button type="button" class="ghost use-hn" data-failed-hn>Use Hacker News API instead</button>' : ''}</span><span class="ctl"><button type="button" class="icon-btn retry" data-failed-retry aria-label="Retry ${esc(f.title)}" title="Retry this feed"><svg><use href="${SPRITE}#i-refresh"/></svg></button><button type="button" class="icon-btn edit" data-failed-edit aria-label="Edit URL of ${esc(f.title)}" title="Edit feed URL"><svg><use href="${SPRITE}#i-link"/></svg></button><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></span></li>`).join('');
   ul.hidden = !st.failed.length;
   $('#feeds-failed-actions').hidden = !st.failed.length;
   $('#remove-failed-btn').textContent = `Remove all failed (${st.failed.length})`;
@@ -852,6 +853,20 @@ async function editFeedUrl(id) {
 }
 
 $('#feeds-errors').addEventListener('click', async (ev) => {
+  const hn = ev.target.closest('[data-failed-hn]');
+  if (hn) {
+    try {
+      const li = hn.closest('li');
+      const lf = await getLocal();
+      const f = lf.feeds.get(li.dataset.id);
+      toast('Switching to the Hacker News API…', 30000);
+      const r = await lf.changeFeedUrl(li.dataset.id, hnApiReplacement(f.url));
+      toast(r.ok ? `Hacker News works — ${r.added} article${r.added === 1 ? '' : 's'}` : `Still failing: ${r.error}`, 3500);
+      await syncAfterChange();
+      updateFeedStatus();
+    } catch (err) { fail(err); }
+    return;
+  }
   const rt = ev.target.closest('[data-failed-retry]');
   if (rt) { try { await retryOne(rt.closest('li').dataset.id, rt); } catch (err) { fail(err); } return; }
   const e = ev.target.closest('[data-failed-edit]');

@@ -65,6 +65,23 @@ server.listen(0, async () => {
       };
     }, [FEEDS['https://alpha.example/feed.xml'], FEEDS['https://beta.example/atom.xml'], FEEDS['https://gamma.example/rdf'], FEEDS['https://delta.example/feed'], fx('sample.opml')]);
 
+    const hnj = fs.readFileSync(path.join(__dirname, 'fixtures', 'hn.json'), 'utf8');
+    const hn = await p.evaluate(async (json) => {
+      const m = await import('./js/hnapi.js');
+      const f = m.parseHNApi(JSON.parse(json), 'https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30');
+      return {
+        f,
+        hosts: ['https://news.ycombinator.com/rss', 'https://hackernews.com/rss', 'http://hnrss.org/frontpage', 'https://example.com/rss'].map(m.isHNHost),
+        api: ['https://hn.algolia.com/api/v1/search?tags=front_page', 'https://hn.algolia.com/api/v1/search_by_date?tags=story', 'https://hn.algolia.com/other'].map(m.isHNApi),
+        repl: [m.hnApiReplacement('https://hnrss.org/newest?points=100'), m.hnApiReplacement('https://hackernews.com/rss')],
+      };
+    }, hnj);
+    check('HN API: title, site and one item per hit', hn.f.title === 'Hacker News: Front Page' && hn.f.website === 'https://news.ycombinator.com/' && hn.f.items.length === 3, hn.f);
+    check('HN API: story link, author, time, points and discussion link', hn.f.items[0].link.startsWith('https://www.thestateofai.com/') && hn.f.items[0].author === 'TheWiggles' && hn.f.items[0].published === 1794161767000 && /804 points · 430 comments/.test(hn.f.items[0].summary) && hn.f.items[0].summary.includes('item?id=50415628'), hn.f.items[0]);
+    check('HN API: Ask HN without a link points at the discussion', hn.f.items[2].link === 'https://news.ycombinator.com/item?id=777', hn.f.items[2]);
+    check('HN hosts and API addresses are recognised', JSON.stringify(hn.hosts) === '[true,true,true,false]' && JSON.stringify(hn.api) === '[true,true,false]', hn);
+    check('HN replacement: front page by default, newest when asked', hn.repl[0].includes('search_by_date') && hn.repl[1].includes('tags=front_page'), hn.repl);
+
     const r = parsed.rss;
     check('RSS: title, site, items', r.title === 'Alpha Blog' && r.website === 'https://alpha.example/' && r.items.length === 3, r);
     check('RSS: entities decoded in title', r.items[0].title === 'Fresh & New', r.items[0].title);
@@ -98,6 +115,7 @@ server.listen(0, async () => {
         seen.requests.push(feeds);
         const results = feeds.map((f) => {
           if (/dead\d?\.example/.test(f.url)) return { url: f.url, status: 0, error: 'Timed out' };
+          if (/ycombinator\.com|hackernews\.com|hnrss\.org/.test(f.url)) return { url: f.url, status: 419, error: 'HTTP 419', detail: 'Sorry', finalUrl: f.url, server: 'cloudflare' };
           if (etagMode && f.etag === 'v1') return { url: f.url, status: 304 };
           return { url: f.url, status: 200, finalUrl: f.url, etag: 'v1', modified: null, body: FEEDS[f.url] };
         });
@@ -350,7 +368,29 @@ server.listen(0, async () => {
     await p.click('[data-action="remove-failed"]');
     await p.waitForFunction(() => !document.querySelector('#feeds-errors li'));
     check('remove all failed', await p.locator('#feeds-failed-actions').isHidden() && !(await p.textContent('#feeds-status')).includes('failed'));
+    // ---------- Hacker News: refused via the proxy, works via the HN API fetched by the browser ----------
+    let algoliaCalls = 0;
+    await p.route('https://hn.algolia.com/**', (route) => { algoliaCalls++; route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: hnj }); });
+    seen.requests.length = 0;
+    await p.setInputFiles('#opml-file', { name: 'hn.opml', mimeType: 'text/x-opml', buffer: Buffer.from('<?xml version="1.0"?><opml version="1.0"><body><outline text="News"><outline type="rss" text="Hacker News" xmlUrl="https://hackernews.com/rss"/></outline></body></opml>') });
+    await p.waitForFunction(() => /feed failed/.test(document.querySelector('#toast')?.textContent || ''), null, { timeout: 15000 });
+    await p.click('.bar [data-action="settings"]');
+    await p.waitForSelector('#feeds-errors li:has-text("Hacker News")');
+    const hnLine = await p.textContent('#feeds-errors li:has-text("Hacker News")');
+    check('HN failure shows status, what HN said and which server answered', /HTTP 419 — Sorry — server: cloudflare/.test(hnLine) && hnLine.includes('https://hackernews.com/rss'), hnLine);
+    check('failed HN feed offers the API switch', (await p.locator('#feeds-errors li:has-text("Hacker News") [data-failed-hn]').count()) === 1);
+    await p.click('#feeds-errors [data-failed-hn]');
+    await p.waitForFunction(() => !document.querySelector('#feeds-errors li'));
+    check('after switching, HN is fetched by the browser (not the proxy) and works', algoliaCalls >= 1 && !JSON.stringify(seen.requests).includes('algolia'), [algoliaCalls, seen.requests]);
+    await p.click('#settings .dlg-head .icon-btn');
+    await p.click('.src[data-stream*="global.all"]');
+    await p.waitForSelector('.entry:has-text("Ask HN")');
+    const askRow = p.locator('.entry', { hasText: 'Ask HN' });
+    check('HN articles are listed with points and comments', /12 points · 3 comments/.test(await askRow.textContent()));
+    check('HN feed keeps its name and category', (await p.$$eval('.src-label', (n) => n.map((x) => x.textContent))).includes('Hacker News'));
+
     p.once('dialog', (d) => d.accept());
+    await p.click('.bar [data-action="settings"]');
     await p.click('[data-action="reset-local"]');
     await p.waitForSelector('.welcome');
     check('reset returns to welcome', true);

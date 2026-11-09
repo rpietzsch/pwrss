@@ -3,6 +3,7 @@
 import { ApiError, cleanProxy, proxyFetchPage } from './api.js';
 import { parseFeed } from './feedparse.js';
 import { parseOPML, buildOPML } from './opml.js';
+import { isHNApi, parseHNApi } from './hnapi.js';
 import * as store from './store.js';
 
 const UID = 'local';
@@ -393,11 +394,29 @@ export class LocalFeeds {
   async refreshAll({ onProgress, ids } = {}) {
     await this.init();
     const feeds = (ids ? ids.map((i) => this.feeds.get(i)) : [...this.feeds.values()]).filter(Boolean);
+    const direct = feeds.filter((f) => isHNApi(f.url));
+    const proxied = feeds.filter((f) => !isHNApi(f.url));
     const chunks = [];
-    for (let i = 0; i < feeds.length; i += CHUNK) chunks.push(feeds.slice(i, i + CHUNK));
+    for (let i = 0; i < proxied.length; i += CHUNK) chunks.push(proxied.slice(i, i + CHUNK));
     const out = { added: 0, fetched: 0, failed: 0, total: feeds.length };
     let done = 0, next = 0, fatal = null;
     onProgress?.(0, feeds.length);
+
+    // Feeds the browser fetches itself (no proxy needed).
+    if (direct.length) {
+      const changedFeeds = [];
+      const changedEntries = [];
+      await Promise.all(direct.map(async (f) => {
+        const res = this.applyResult(f, await this.fetchDirect(f), changedEntries);
+        out.added += res.added;
+        res.ok ? out.fetched++ : out.failed++;
+        changedFeeds.push(f);
+        done++;
+        onProgress?.(Math.min(done, feeds.length), feeds.length);
+      }));
+      await store.put('feeds', changedFeeds);
+      await store.put('entries', changedEntries);
+    }
 
     const worker = async () => {
       while (next < chunks.length && !fatal) {
@@ -425,12 +444,26 @@ export class LocalFeeds {
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
-    if (fatal) throw fatal;
+    if (fatal) {
+      this.failed = [...this.feeds.values()].filter((f) => f.error).map((f) => this.failure(f));
+      throw fatal;
+    }
 
     await this.prune();
     this.failed = [...this.feeds.values()].filter((f) => f.error).map((f) => this.failure(f));
     if (!ids) { try { localStorage.setItem(LAST_KEY, String(Date.now())); } catch {} }
     return out;
+  }
+
+  /** Fetch a feed in the browser itself (Hacker News Search API). Same result shape as the proxy's. */
+  async fetchDirect(f) {
+    try {
+      const res = await fetch(f.url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return { url: f.url, status: res.status, error: `HTTP ${res.status}` };
+      return { url: f.url, status: 200, finalUrl: f.url, parsed: parseHNApi(await res.json(), f.url) };
+    } catch (e) {
+      return { url: f.url, status: 0, error: e?.name === 'TimeoutError' ? 'Timed out' : e?.message === 'Not a valid feed' ? 'Not a valid feed' : 'Could not reach the API' };
+    }
   }
 
   applyResult(f, r, changedEntries) {
@@ -444,7 +477,7 @@ export class LocalFeeds {
     }
     let parsed;
     try {
-      parsed = parseFeed(r.body, now);
+      parsed = r.parsed || parseFeed(r.body, now);
     } catch (e) {
       f.error = e.message || 'Not a valid feed';
       const text = String(r.body || '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
