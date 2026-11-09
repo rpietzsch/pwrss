@@ -95,7 +95,7 @@ server.listen(0, async () => {
         const { feeds } = JSON.parse(req.postData());
         seen.requests.push(feeds);
         const results = feeds.map((f) => {
-          if (f.url.includes('dead.example')) return { url: f.url, status: 0, error: 'Timed out' };
+          if (/dead\d?\.example/.test(f.url)) return { url: f.url, status: 0, error: 'Timed out' };
           if (etagMode && f.etag === 'v1') return { url: f.url, status: 304 };
           return { url: f.url, status: 200, finalUrl: f.url, etag: 'v1', modified: null, body: FEEDS[f.url] };
         });
@@ -276,21 +276,48 @@ server.listen(0, async () => {
     check('re-import adds the missing feed and fetches it', labels4.includes('Alpha Blog'), labels4);
     check('re-import keeps edits (renamed, moved, uncategorized stay put)', labels4.includes('Epsilon Renamed') && at('Delta') > at('Tech') && at('Delta') < at('Uncategorized') && at('Gamma') > at('Uncategorized'), labels4);
 
-    // ---------- failed feeds: list, retry, remove ----------
+    // ---------- failed feeds: list, retry, edit URL, remove ----------
     await p.click('.bar [data-action="settings"]');
     await p.waitForSelector('#feeds-errors li');
-    check('failed list shows every failed feed, each with a remove button', (await p.locator('#feeds-errors li').count()) === 2 && (await p.locator('#feeds-errors [data-failed-del]').count()) === 2);
+    check('failed list: every failed feed has edit and remove buttons', (await p.locator('#feeds-errors li').count()) === 2 && (await p.locator('#feeds-errors [data-failed-del]').count()) === 2 && (await p.locator('#feeds-errors [data-failed-edit]').count()) === 2);
     seen.requests.length = 0;
     await p.click('[data-action="retry-failed"]');
     await p.waitForFunction(() => /2 failed/.test(document.querySelector('#feeds-status')?.textContent || ''));
     check('retry re-fetches only the failed feeds', seen.requests.length === 1 && seen.requests[0].length === 2 && seen.requests[0].every((f) => /dead|loose/.test(f.url)), seen.requests);
-    await p.click('#feeds-errors li:has-text("Dead Feed") [data-failed-del]');
+
+    // edit URL from the failed list: Loose Feed -> a working address
+    FEEDS['https://revived.example/feed'] = subst(fx('rss.xml')).replace('Alpha Blog', 'Revived Blog').replace(/alpha-(\d)/g, 'rev-$1');
+    p.once('dialog', (d) => { check('edit URL prompt shows the current address', d.defaultValue() === 'https://loose.example/feed', d.defaultValue()); d.accept('revived.example/feed'); });
+    await p.click('#feeds-errors li:has-text("Loose Feed") [data-failed-edit]');
     await p.waitForFunction(() => /1 failed/.test(document.querySelector('#feeds-status')?.textContent || ''));
-    check('remove a single failed feed', !(await p.textContent('#feeds-errors')).includes('Dead Feed'));
+    check('edited feed recovers and leaves the failed list', !(await p.textContent('#feeds-errors')).includes('Loose Feed'));
+
+    await p.click('#feeds-errors li:has-text("Dead Feed") [data-failed-del]');
+    await p.waitForFunction(() => !document.querySelector('#feeds-errors li'));
+    check('remove a single failed feed hides the failed list', await p.locator('#feeds-failed-actions').isHidden());
+    await p.click('#settings .dlg-head .icon-btn');
+
+    // edit URL from Manage feeds: to an address that fails, then to one another feed already uses
+    await p.click('#manage-btn');
+    await p.waitForSelector('#manage[open]');
+    check('edited feed kept its category and name', (await p.textContent('.mg-cat[data-cat=""]')).includes('Loose Feed'));
+    p.once('dialog', (d) => d.accept('https://dead2.example/feed'));
+    await p.click('.mg-feed:has-text("Loose Feed") [data-mg="feed-url"]');
+    await p.waitForFunction(() => /Failed: Timed out/.test(document.querySelector('.mg-feed')?.closest('#manage-body')?.textContent || ''));
+    check('Manage: new address that fails is kept and shown as failed', (await p.textContent('.mg-feed:has-text("Loose Feed")')).includes('Failed: Timed out'));
+    p.once('dialog', (d) => d.accept('https://alpha.example/feed.xml'));
+    await p.click('.mg-feed:has-text("Loose Feed") [data-mg="feed-url"]');
+    await p.waitForTimeout(500);
+    check('address already used by another feed is refused', (await p.textContent('.mg-feed:has-text("Loose Feed")')).includes('Failed'));
+    await p.click('#manage .primary[data-action="close-manage"]');
+
+    await p.click('.bar [data-action="settings"]');
+    await p.waitForSelector('#feeds-errors li');
+    check('failed list shows the edited address', (await p.textContent('#feeds-errors')).includes('https://dead2.example/feed'));
     p.once('dialog', (d) => d.accept());
     await p.click('[data-action="remove-failed"]');
     await p.waitForFunction(() => !document.querySelector('#feeds-errors li'));
-    check('remove all failed hides the failed list', await p.locator('#feeds-failed-actions').isHidden() && !(await p.textContent('#feeds-status')).includes('failed'));
+    check('remove all failed', await p.locator('#feeds-failed-actions').isHidden() && !(await p.textContent('#feeds-status')).includes('failed'));
     p.once('dialog', (d) => d.accept());
     await p.click('[data-action="reset-local"]');
     await p.waitForSelector('.welcome');

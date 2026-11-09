@@ -31,6 +31,7 @@ const ICONS = {
   trash: 'trash-2',
   list: 'rss',
   plus: 'plus',
+  link: 'link',
 };
 
 const src = path.resolve(process.argv[2] || '');

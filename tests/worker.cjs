@@ -136,5 +136,15 @@ const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (
   check('feeds: huge RSS keeps the newest complete items and stays well-formed', big[0].status === 200 && big[0].truncated && pc.includes('Episode 0') && pc.trimEnd().endsWith('</item>\n</channel></rss>') && !pc.includes('Episode 3999') && pc.length < 2.2 * 1024 * 1024, [big[0].truncated, pc.length]);
   check('feeds: huge Atom is cut and closed too', big[1].status === 200 && big[1].body.trimEnd().endsWith('</entry>\n</feed>') && big[1].body.includes('<id>i0</id>'), big[1].body.slice(-60));
 
+  // ---- failures report where a redirect ended up ----
+  globalThis.fetch = async (url) => {
+    const res = new Response('', { status: 419 });
+    Object.defineProperty(res, 'url', { value: 'https://target.example/rss' });
+    return res;
+  };
+  r = await post([{ url: 'https://redirecting.example/rss' }]);
+  const fin = (await j(r)).results[0];
+  check('feeds: failure includes the final URL after redirects', fin.status === 419 && fin.finalUrl === 'https://target.example/rss', fin);
+
   process.exit(failures ? 1 : 0);
 })();

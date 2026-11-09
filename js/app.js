@@ -775,7 +775,7 @@ async function updateFeedStatus() {
     ? `${st.feeds} feed${st.feeds === 1 ? '' : 's'} · ${when}${st.failed.length ? ` · ${st.failed.length} failed` : ''}`
     : 'No local feeds yet.';
   const ul = $('#feeds-errors');
-  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span>${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small></span><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></li>`).join('');
+  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span class="msg">${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small></span><span class="ctl"><button type="button" class="icon-btn edit" data-failed-edit aria-label="Edit URL of ${esc(f.title)}" title="Edit feed URL"><svg><use href="${SPRITE}#i-link"/></svg></button><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></span></li>`).join('');
   ul.hidden = !st.failed.length;
   $('#feeds-failed-actions').hidden = !st.failed.length;
   $('#remove-failed-btn').textContent = `Remove all failed (${st.failed.length})`;
@@ -806,7 +806,25 @@ $('#opml-file').addEventListener('change', async (ev) => {
   } catch (e) { fail(e); }
 });
 
+// Ask for a new address, apply it and report the result (shared by Manage feeds and the failed list).
+async function editFeedUrl(id) {
+  const lf = await getLocal();
+  const f = lf.feeds.get(id);
+  if (!f) return;
+  const input = prompt(`Feed address for “${f.title || f.url}”`, f.url);
+  if (input === null || input.trim() === f.url) return;
+  collectFormIfOpen();
+  toast('Checking new address…', 30000);
+  const r = await lf.changeFeedUrl(id, input);
+  toast(r.ok ? `Updated — ${r.added ? `${r.added} new article${r.added === 1 ? '' : 's'}` : 'feed works'}` : `Still failing: ${r.error}`, 3500);
+  await syncAfterChange();
+  updateFeedStatus();
+  if (dlgManage.open) await renderManage();
+}
+
 $('#feeds-errors').addEventListener('click', async (ev) => {
+  const e = ev.target.closest('[data-failed-edit]');
+  if (e) { try { await editFeedUrl(e.closest('li').dataset.id); } catch (err) { fail(err); } return; }
   const b = ev.target.closest('[data-failed-del]');
   if (!b) return;
   const li = b.closest('li');
@@ -883,7 +901,7 @@ async function renderManage() {
       <div class="mg-ctl">
         <select data-mg="move" aria-label="Category">${opts(f.category)}</select>
         ${btn('feed-up', 'Move up', 'up', '', i === 0 ? 'disabled' : '')}${btn('feed-down', 'Move down', 'down', '', i === n - 1 ? 'disabled' : '')}
-        ${btn('feed-rename', 'Rename', 'edit')}${btn('feed-remove', 'Remove feed', 'trash', 'danger')}
+        ${btn('feed-rename', 'Rename', 'edit')}${btn('feed-url', 'Edit feed URL', 'link')}${btn('feed-remove', 'Remove feed', 'trash', 'danger')}
       </div></div>`;
   const section = (label, i) => {
     const list = lf.list(label);
@@ -989,6 +1007,7 @@ async function manageAction(act, node) {
         await lf.renameFeed(feedId, name);
         break;
       }
+      case 'feed-url': await editFeedUrl(feedId); return;
       case 'feed-remove': {
         const f = lf.feeds.get(feedId);
         if (!confirm(`Remove “${f.title || f.url}”? Its unsaved articles are deleted; saved ones stay.`)) return;

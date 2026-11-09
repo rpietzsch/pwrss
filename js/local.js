@@ -84,6 +84,8 @@ export class LocalFeeds {
   saveMeta() { return store.put('meta', [{ id: 'categories', labels: this.catOrder }]); }
 
   // Feeds of one category (null = uncategorized) in display order.
+  byUrl(url) { return [...this.feeds.values()].find((f) => f.url === url); }
+
   list(cat) {
     const c = cat || null;
     return [...this.feeds.values()]
@@ -192,7 +194,7 @@ export class LocalFeeds {
     const touched = [];
     for (const it of items) {
       const id = 'feed/' + it.url;
-      if (this.feeds.has(id)) { existing++; continue; } // never overwrite edits made in the app
+      if (this.feeds.has(id) || this.byUrl(it.url)) { existing++; continue; } // never overwrite edits made in the app
       const f = { id, url: it.url, title: it.title, website: it.website, category: it.category, order: this.nextOrder(it.category), etag: null, modified: null, lastFetched: null, error: null };
       this.feeds.set(id, f);
       touched.push(f);
@@ -214,7 +216,7 @@ export class LocalFeeds {
     if (!url) throw new ApiError('That doesn’t look like a web address.', 0);
     if (category && !this.catOrder.includes(category)) throw new ApiError('Unknown category.', 0);
     const id = 'feed/' + url;
-    if (this.feeds.has(id)) throw new ApiError('You already follow this feed.', 0);
+    if (this.feeds.has(id) || this.byUrl(url)) throw new ApiError('You already follow this feed.', 0);
     const f = { id, url, title: '', website: '', category: category || null, order: this.nextOrder(category), etag: null, modified: null, lastFetched: null, error: null };
     this.feeds.set(id, f);
     let r;
@@ -254,6 +256,22 @@ export class LocalFeeds {
   /** Re-fetch only the feeds that failed last time. */
   retryFailed(opts = {}) {
     return this.refreshAll({ ...opts, ids: this.failed.map((f) => f.id) });
+  }
+
+  /** Point a feed at a new address; keeps its articles, read state and category. Fetches it right away. */
+  async changeFeedUrl(id, input) {
+    await this.init();
+    const f = this.feeds.get(id);
+    if (!f) return null;
+    const url = normalizeUrl(input);
+    if (!url) throw new ApiError('That doesn’t look like a web address.', 0);
+    const dup = this.byUrl(url);
+    if (dup && dup !== f) throw new ApiError('You already follow a feed with that address.', 0);
+    f.url = url;
+    f.etag = null; f.modified = null; f.error = null; f.errorDetail = null;
+    await store.put('feeds', [f]);
+    const r = await this.refreshAll({ ids: [id] });
+    return { ok: !f.error, error: f.error, added: r.added, feed: f };
   }
 
   async renameFeed(id, title) {
@@ -410,7 +428,12 @@ export class LocalFeeds {
   applyResult(f, r, changedEntries) {
     const now = Date.now();
     if (r.status === 304) { f.lastFetched = now; f.error = null; f.errorDetail = null; return { ok: true, added: 0 }; }
-    if (r.status !== 200) { f.error = r.error || `HTTP ${r.status}`; f.errorDetail = r.detail || null; return { ok: false, added: 0 }; }
+    if (r.status !== 200) {
+      f.error = r.error || `HTTP ${r.status}`;
+      const moved = r.finalUrl && r.finalUrl !== f.url ? `after redirect to ${r.finalUrl}` : '';
+      f.errorDetail = [r.detail, moved].filter(Boolean).join(' — ') || null;
+      return { ok: false, added: 0 };
+    }
     let parsed;
     try {
       parsed = parseFeed(r.body, now);

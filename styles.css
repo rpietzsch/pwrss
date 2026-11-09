@@ -418,9 +418,11 @@ label.btn { display: inline-flex; align-items: center; justify-content: center; 
 .feed-errors { margin: 0 0 10px; padding: 0; list-style: none; max-height: 40vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; color: var(--fg-2); }
 .feed-errors li { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border-top: 1px solid var(--line); }
 .feed-errors li:first-child { border-top: 0; }
-.feed-errors li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.feed-errors li .msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .feed-errors li small { display: block; color: var(--fg-3); }
+.feed-errors .ctl { display: flex; flex: none; }
 .feed-errors .icon-btn { width: 36px; height: 36px; flex: none; color: #d33; }
+.feed-errors .icon-btn.edit { color: var(--fg-2); }
 .feed-errors .icon-btn svg { width: 19px; height: 19px; }
 .dlg-body h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
