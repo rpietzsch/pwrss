@@ -390,6 +390,7 @@ export class LocalFeeds {
   /** The feed list changed on this device: it becomes the newest version. */
   touchDoc() {
     this.sync.docAt = Date.now();
+    this.onDocChange?.(); // the app schedules a sync, so no feed list change can be forgotten
     return this.saveSync();
   }
 

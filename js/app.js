@@ -1072,7 +1072,6 @@ async function syncAfterChange() {
   }
 }
 async function afterManage() {
-  scheduleSync();
   await syncAfterChange();
   await renderManage();
 }
@@ -1275,6 +1274,7 @@ async function start() {
     S.api = new LocalFeeds(st);
     S.api.syncOn = !!st.sync;
     S.api.syncClient = new SyncClient(S.api);
+    S.api.onDocChange = () => scheduleSync(1500);
     try { await S.api.init(); } catch (e) { fail(new Error('Local storage is unavailable in this browser mode.')); }
     if (!S.api.feeds.size) {
       S.api = null;
@@ -1364,6 +1364,10 @@ handleOAuthReturn().then(start);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
+// While the app is open: pick up changes from other devices without any action.
+const SYNC_EVERY_MS = 2 * 60 * 1000;
+setInterval(() => { if (document.visibilityState === 'visible') scheduleSync(0); }, SYNC_EVERY_MS);
+
 // refresh when coming back to the app after a while
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {

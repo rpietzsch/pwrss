@@ -81,7 +81,7 @@ declared in `worker/wrangler.toml`, so deploying the Worker sets it up.
 4. On each device: Settings → **Sync** → switch it on → Save. On a new device, enter the proxy URL and key first; the
    feed list arrives automatically and the feeds are fetched.
 
-How it behaves: changes are queued and sent a few seconds later (and when you open the app or tap *Sync now*); it works
+How it behaves: changes are queued and sent a few seconds later (and when you open the app or tap *Sync now*); an open app checks for changes from your other devices every 2 minutes; it works
 offline; the **latest change wins** per article, and the feed list as a whole. Article text isn't synced; every device
 downloads its own feeds. The first sync uploads your feed list, saved articles and the last 30 days of read articles.
 The cloud keeps read states for 90 days and saved articles for as long as they are saved.

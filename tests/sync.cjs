@@ -30,7 +30,7 @@ const FEEDS = {
 };
 const OPML = '<?xml version="1.0"?><opml version="1.0"><body>'
   + '<outline text="Tech"><outline type="rss" text="Alpha Blog" xmlUrl="https://alpha.example/feed.xml"/><outline type="rss" text="Beta Journal" xmlUrl="https://beta.example/atom.xml"/></outline>'
-  + '<outline text="Misc"><outline type="rss" text="Gamma" xmlUrl="https://gamma.example/rdf"/></outline>'
+  + '<outline text="Misc"><outline type="rss" text="Gamma" xmlUrl="https://gamma.example/rdf"/><outline type="rss" text="Dead Feed" xmlUrl="https://dead.example/feed"/><outline type="rss" text="Dead Feed Two" xmlUrl="https://dead2.example/feed"/></outline>'
   + '</body></opml>';
 
 server.listen(0, async () => {
@@ -67,9 +67,10 @@ server.listen(0, async () => {
     await page.route('https://alpha.example/img/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64') }));
     page.on('pageerror', (e) => errs.push(e.message));
   };
-  const newDevice = async (browser, key = 'secret') => {
+  const newDevice = async (browser, key = 'secret', fakeClock = false) => {
     const ctx = await browser.newContext({ viewport: { width: 1300, height: 800 } });
     const page = await ctx.newPage();
+    if (fakeClock) await page.clock.install(); // lets the test jump ahead instead of waiting minutes
     await attach(page);
     await page.goto(base);
     await page.evaluate(([px, k]) => localStorage.setItem('pwrss.settings', JSON.stringify({ proxy: px, proxyKey: k })), [PROXY, key]);
@@ -122,7 +123,7 @@ server.listen(0, async () => {
     await A.click('#settings .dlg-head .icon-btn');
 
     // ================= device B: brand new, joins with sync =================
-    const B = await newDevice(b);
+    const B = await newDevice(b, 'secret', true);
     check('B starts empty', await B.locator('.welcome').isVisible());
     await B.click('.welcome [data-action="settings"]');
     await B.check('input[name="sync"]');
@@ -175,6 +176,50 @@ server.listen(0, async () => {
     await syncNow(A);
     await A.waitForTimeout(500);
     check('feed removed on B is removed on A', !(await labels(A)).includes('Gamma'), await labels(A));
+
+    // ================= failed feeds removed from Settings on A reach B =================
+    const serverDocHasDead = () => /dead/.test(JSON.stringify(JSON.parse(db.prepare("SELECT v FROM meta WHERE k = 'doc'").get().v).feeds));
+    await B.click('.bar [data-action="settings"]');
+    await B.waitForSelector('#feeds-errors li');
+    check('B lists the failing feeds', (await B.locator('#feeds-errors li').count()) === 2);
+    await B.click('#settings .dlg-head .icon-btn');
+
+    await A.click('.bar [data-action="settings"]');
+    await A.waitForSelector('#feeds-errors li');
+    check('A lists the failing feeds', (await A.locator('#feeds-errors li').count()) === 2);
+    A.once('dialog', (d) => d.accept());
+    await A.click('[data-action="remove-failed"]');
+    await A.waitForFunction(() => !document.querySelector('#feeds-errors li'));
+    // no further tap: the removal has to travel on its own
+    const t0 = Date.now();
+    while (serverDocHasDead() && Date.now() - t0 < 9000) await A.waitForTimeout(300);
+    check('removing failed feeds in Settings syncs on its own (the server list loses them)', !serverDocHasDead());
+    await A.click('#settings .dlg-head .icon-btn');
+
+    await syncNow(B);
+    await B.click('.bar [data-action="settings"]');
+    await B.waitForTimeout(400);
+    check('B no longer lists the removed failed feeds', (await B.locator('#feeds-errors li').count()) === 0 && !/failed/.test(await B.textContent('#feeds-status')), await B.textContent('#feeds-status'));
+    await B.click('#settings .dlg-head .icon-btn');
+    await B.click('#manage-btn');
+    await B.waitForSelector('#manage[open]');
+    check('and they are gone from B\'s feed management too', !(await B.textContent('#manage-body')).includes('Dead Feed'));
+    await B.click('#manage .primary[data-action="close-manage"]');
+
+    // ================= an open app picks up changes from another device by itself =================
+    const allCountOn = (P) => P.evaluate(() => Number(document.querySelector('.src[data-stream*="global.all"] .count')?.textContent || 0));
+    check('B has nothing unread', (await allCountOn(B)) === 0, await allCountOn(B));
+    await A.click('#list .bar [data-action="toggle-filter"]'); // show read articles too
+    await A.click('.src[data-stream*="global.all"]');
+    await A.locator('.entry', { hasText: 'Second post' }).click();
+    await A.waitForSelector('.art-head');
+    await A.keyboard.press('m'); // mark as unread on A
+    await A.waitForTimeout(1500);
+    await syncNow(A);
+    check('the unread mark is on the server, B has not been touched', (await allCountOn(B)) === 0);
+    await B.clock.fastForward(125000); // two minutes pass on B, with nobody touching it
+    await B.waitForFunction(() => Number(document.querySelector('.src[data-stream*="global.all"] .count')?.textContent || 0) === 1, null, { timeout: 15000 });
+    check('B picks up the change on its own after two minutes', (await allCountOn(B)) === 1);
 
     // ================= the Worker refuses without a proxy key =================
     const saved = env.PROXY_KEY;
