@@ -45,6 +45,11 @@ npx wrangler deploy
 npx wrangler secret put PROXY_KEY   # optional
 ```
 
+**Git-connected (no pasting, works from a phone)** — Worker → Settings → Builds → connect `rpietzsch/pwrss`,
+production branch = the branch you deploy from, **root directory `worker`**, build command empty,
+deploy command `npx wrangler deploy`. Every push then redeploys the worker. Add `PROXY_KEY` as a secret under the
+Worker's own Settings → Variables and Secrets (not the Builds page).
+
 Your token passes through the worker on its way to Feedly; it is never stored there. Because you deploy it to
 your own Cloudflare account, nobody else sees it. `ALLOWED_ORIGINS` and `PROXY_KEY` keep others from using your
 worker as an open proxy.
