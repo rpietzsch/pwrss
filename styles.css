@@ -448,3 +448,5 @@ button.wide { width: 100%; margin-bottom: 6px; }
 .mg-ctl .icon-btn:disabled { opacity: .25; pointer-events: none; }
 .mg-ctl .icon-btn.danger { color: #d33; }
 .mg-empty { padding: 10px 12px; font-size: 13px; color: var(--fg-3); border-top: 1px solid var(--line); }
+
+.feed-errors li small.url { opacity: .8; font-size: 12px; overflow-wrap: anywhere; }

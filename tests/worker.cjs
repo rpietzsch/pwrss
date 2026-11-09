@@ -99,5 +99,42 @@ const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (
   r = await w.fetch(req('/feeds', { method: 'POST', body: { feeds: [] }, origin: 'https://evil.example' }), env);
   check('feeds: origin check applies', r.status === 403);
 
+  // ---- /feeds: concurrency, retry, user agent, diagnostics, huge feeds ----
+  let inFlight = 0, maxInFlight = 0;
+  const seenUA = [];
+  const attempts = {};
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    seenUA.push(init?.headers?.['User-Agent']);
+    attempts[u] = (attempts[u] || 0) + 1;
+    inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 15));
+    inFlight--;
+    if (u.includes('flaky')) return attempts[u] === 1 ? new Response('busy', { status: 503 }) : new Response('<rss><channel><title>ok</title></channel></rss>');
+    if (u.includes('always503')) return new Response('<html><body><h1>Sorry,  we are not able   to serve your requests this quickly.</h1><script>x()</script></body></html>', { status: 503 });
+    if (u.includes('podcast')) {
+      const items = Array.from({ length: 4000 }, (_, i) => `<item><title>Episode ${i}</title><guid>g${i}</guid><description>${'x'.repeat(900)}</description></item>`).join('\n');
+      return new Response(`<?xml version="1.0"?><rss version="2.0"><channel><title>Big</title>\n${items}\n</channel></rss>`, { headers: { 'Content-Type': 'application/rss+xml' } });
+    }
+    if (u.includes('hugeatom')) {
+      const items = Array.from({ length: 4000 }, (_, i) => `<entry><title>E${i}</title><id>i${i}</id><summary>${'y'.repeat(900)}</summary></entry>`).join('\n');
+      return new Response(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>BigAtom</title>\n${items}\n</feed>`);
+    }
+    return new Response('<rss><channel><title>t</title></channel></rss>');
+  };
+  r = await post(Array.from({ length: 25 }, (_, i) => ({ url: `https://c${i}.example/f` })));
+  const many = (await j(r)).results;
+  check('feeds: at most 6 fetches in flight', maxInFlight <= 6 && maxInFlight > 1 && many.every((x) => x.status === 200), maxInFlight);
+  check('feeds: honest feed-reader user agent', seenUA.every((ua) => /Pwrss\/1\.0/.test(ua) && !/Chrome/.test(ua)), seenUA[0]);
+  r = await post([{ url: 'https://flaky.example/f' }, { url: 'https://always503.example/f' }]);
+  const rt = (await j(r)).results;
+  check('feeds: 503 is retried once and can recover', rt[0].status === 200 && attempts['https://flaky.example/f'] === 2, rt[0]);
+  check('feeds: persistent 503 reports status and what the server said', rt[1].status === 503 && attempts['https://always503.example/f'] === 2 && rt[1].detail === 'Sorry, we are not able to serve your requests this quickly.', rt[1]);
+  r = await post([{ url: 'https://podcast.example/f' }, { url: 'https://hugeatom.example/f' }]);
+  const big = (await j(r)).results;
+  const pc = big[0].body;
+  check('feeds: huge RSS keeps the newest complete items and stays well-formed', big[0].status === 200 && big[0].truncated && pc.includes('Episode 0') && pc.trimEnd().endsWith('</item>\n</channel></rss>') && !pc.includes('Episode 3999') && pc.length < 2.2 * 1024 * 1024, [big[0].truncated, pc.length]);
+  check('feeds: huge Atom is cut and closed too', big[1].status === 200 && big[1].body.trimEnd().endsWith('</entry>\n</feed>') && big[1].body.includes('<id>i0</id>'), big[1].body.slice(-60));
+
   process.exit(failures ? 1 : 0);
 })();

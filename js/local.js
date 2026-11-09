@@ -60,7 +60,7 @@ export class LocalFeeds {
       for (const f of feeds) this.feeds.set(f.id, f);
       for (const e of entries) this.entries.set(e.id, e);
       this.catOrder = meta.find((m) => m.id === 'categories')?.labels || [];
-      this.failed = feeds.filter((f) => f.error).map((f) => ({ id: f.id, title: f.title || f.url, error: f.error }));
+      this.failed = feeds.filter((f) => f.error).map((f) => this.failure(f));
       await this.normalize();
     })();
     return this._init;
@@ -78,6 +78,8 @@ export class LocalFeeds {
     }
     await store.put('feeds', changedFeeds);
   }
+
+  failure(f) { return { id: f.id, title: f.title || f.url, url: f.url, error: f.error, detail: f.errorDetail || '' }; }
 
   saveMeta() { return store.put('meta', [{ id: 'categories', labels: this.catOrder }]); }
 
@@ -400,20 +402,22 @@ export class LocalFeeds {
     if (fatal) throw fatal;
 
     await this.prune();
-    this.failed = [...this.feeds.values()].filter((f) => f.error).map((f) => ({ id: f.id, title: f.title || f.url, error: f.error }));
+    this.failed = [...this.feeds.values()].filter((f) => f.error).map((f) => this.failure(f));
     if (!ids) { try { localStorage.setItem(LAST_KEY, String(Date.now())); } catch {} }
     return out;
   }
 
   applyResult(f, r, changedEntries) {
     const now = Date.now();
-    if (r.status === 304) { f.lastFetched = now; f.error = null; return { ok: true, added: 0 }; }
-    if (r.status !== 200) { f.error = r.error || `HTTP ${r.status}`; return { ok: false, added: 0 }; }
+    if (r.status === 304) { f.lastFetched = now; f.error = null; f.errorDetail = null; return { ok: true, added: 0 }; }
+    if (r.status !== 200) { f.error = r.error || `HTTP ${r.status}`; f.errorDetail = r.detail || null; return { ok: false, added: 0 }; }
     let parsed;
     try {
       parsed = parseFeed(r.body, now);
     } catch (e) {
       f.error = e.message || 'Not a valid feed';
+      const text = String(r.body || '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+      f.errorDetail = [(r.contentType || '').split(';')[0], text].filter(Boolean).join(' — ') || null;
       return { ok: false, added: 0 };
     }
     const first = f.lastFetched == null;
@@ -424,6 +428,7 @@ export class LocalFeeds {
     f.website = f.website || (parsed.website ? abs(parsed.website, base) : '');
     f.lastFetched = now;
     f.error = null;
+    f.errorDetail = null;
 
     let added = 0;
     for (const it of parsed.items) {

@@ -160,6 +160,8 @@ server.listen(0, async () => {
     check('settings show feed count and failures', /6 feeds/.test(status) && /2 failed/.test(status), status);
     const errsList = await p.textContent('#feeds-errors');
     check('failed feeds listed with reason', errsList.includes('Dead Feed') && errsList.includes('Timed out') && /Loose Feed/.test(errsList), errsList);
+    check('failed list shows each feed URL', errsList.includes('https://dead.example/feed') && errsList.includes('https://loose.example/feed'), errsList);
+    check('"not a valid feed" shows what the server returned', /Not a valid feed — .*not a feed/.test(errsList), errsList);
 
     // export
     const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#settings [data-action="export-opml"]')]);

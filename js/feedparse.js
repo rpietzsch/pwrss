@@ -135,5 +135,5 @@ export function parseFeed(xml, now = Date.now()) {
       items: items.map((i) => rssItem(i, now)),
     };
   }
-  throw new Error('Not an RSS or Atom feed');
+  throw new Error('Not a valid feed');
 }

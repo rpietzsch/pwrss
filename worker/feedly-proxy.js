@@ -19,6 +19,8 @@ const MAX_PAGE_BYTES = 5 * 1024 * 1024;
 const MAX_FEED_BYTES = 2 * 1024 * 1024;
 const MAX_FEEDS_PER_REQUEST = 40;
 const FEED_TIMEOUT_MS = 8000;
+const FEED_CONCURRENCY = 6; // Workers allow 6 simultaneous outgoing connections per request
+const FEED_UA = 'Mozilla/5.0 (compatible; Pwrss/1.0; +https://github.com/rpietzsch/pwrss)';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Pwrss/1.0';
 
 function cors(origin) {
@@ -66,7 +68,7 @@ export default {
         try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400, headers); }
         const feeds = Array.isArray(body?.feeds) ? body.feeds : null;
         if (!feeds || feeds.length > MAX_FEEDS_PER_REQUEST) return json({ error: 'bad_feeds' }, 400, headers);
-        return json({ results: await Promise.all(feeds.map(fetchFeed)) }, 200, headers);
+        return json({ results: await pool(feeds, FEED_CONCURRENCY, fetchFeed) }, 200, headers);
       }
 
       if (url.pathname.startsWith('/v3/')) {
@@ -182,30 +184,89 @@ function decode(buf, type) {
   try { return new TextDecoder(cs || 'utf-8').decode(buf); } catch { return new TextDecoder().decode(buf); }
 }
 
-// One feed of a /feeds batch. Never throws: failures become { status: 0, error }.
+// Read at most `max` bytes of a response body.
+async function readLimited(res, max) {
+  const reader = res.body.getReader();
+  const chunks = [];
+  let size = 0, truncated = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.byteLength;
+    if (size > max) { truncated = true; await reader.cancel().catch(() => {}); break; }
+  }
+  const all = new Uint8Array(size);
+  let off = 0;
+  for (const c of chunks) { all.set(c, off); off += c.byteLength; }
+  return { buf: truncated ? all.subarray(0, max) : all, truncated };
+}
+
+// Huge feeds (podcasts with hundreds of episodes): keep the newest complete items and close the document.
+function cutAtLastItem(text) {
+  const item = text.lastIndexOf('</item>');
+  const entry = text.lastIndexOf('</entry>');
+  if (item < 0 && entry < 0) return null;
+  if (entry > item) return text.slice(0, entry + 8) + '\n</feed>';
+  const rdf = /<rdf:RDF/i.test(text.slice(0, 2000));
+  return text.slice(0, item + 7) + (rdf ? '\n</rdf:RDF>' : '\n</channel></rss>');
+}
+
+async function pool(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i]); }
+  }));
+  return out;
+}
+
+const snippet = (text, n = 160) => String(text || '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+const RETRY_STATUS = new Set([429, 502, 503, 504]);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One feed of a /feeds batch. Never throws: failures become { status, error, detail }.
 async function fetchFeed(f) {
+  const first = await fetchFeedOnce(f);
+  if (!RETRY_STATUS.has(first.status)) return first;
+  await sleep(600);
+  return fetchFeedOnce(f);
+}
+
+async function fetchFeedOnce(f) {
   const url = f?.url;
   try {
     const t = new URL(url);
     if (!/^https?:$/.test(t.protocol) || isPrivateHost(t.hostname)) return { url, status: 0, error: 'URL not allowed' };
     const headers = {
-      'User-Agent': UA,
+      'User-Agent': FEED_UA,
       Accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5',
     };
     if (f.etag) headers['If-None-Match'] = f.etag;
     if (f.modified) headers['If-Modified-Since'] = f.modified;
     const res = await fetch(t.href, { headers, redirect: 'follow', signal: AbortSignal.timeout(FEED_TIMEOUT_MS) });
     if (res.status === 304) return { url, status: 304 };
-    if (!res.ok) return { url, status: res.status, error: `HTTP ${res.status}` };
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_FEED_BYTES) return { url, status: 0, error: 'Feed too large' };
+    const type = res.headers.get('Content-Type') || '';
+    if (!res.ok) {
+      let detail = '';
+      try { detail = snippet(await res.text()); } catch {}
+      return { url, status: res.status, error: `HTTP ${res.status}`, detail };
+    }
+    const { buf, truncated } = await readLimited(res, MAX_FEED_BYTES);
+    let body = decode(buf, type);
+    if (truncated) {
+      body = cutAtLastItem(body);
+      if (!body) return { url, status: 0, error: 'Feed too large' };
+    }
     return {
       url,
       status: 200,
       finalUrl: res.url || t.href,
+      contentType: type,
       etag: res.headers.get('ETag') || null,
       modified: res.headers.get('Last-Modified') || null,
-      body: decode(buf, res.headers.get('Content-Type')),
+      truncated: truncated || undefined,
+      body,
     };
   } catch (e) {
     return { url, status: 0, error: e?.name === 'TimeoutError' ? 'Timed out' : (e?.message || 'Fetch failed') };

@@ -775,7 +775,7 @@ async function updateFeedStatus() {
     ? `${st.feeds} feed${st.feeds === 1 ? '' : 's'} · ${when}${st.failed.length ? ` · ${st.failed.length} failed` : ''}`
     : 'No local feeds yet.';
   const ul = $('#feeds-errors');
-  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span>${esc(f.title)}<small>${esc(f.error)}</small></span><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></li>`).join('');
+  ul.innerHTML = st.failed.map((f) => `<li data-id="${esc(f.id)}"><span>${esc(f.title)}<small>${esc(f.error)}${f.detail ? ` — ${esc(f.detail)}` : ''}</small><small class="url">${esc(f.url)}</small></span><button type="button" class="icon-btn" data-failed-del aria-label="Remove ${esc(f.title)}" title="Remove this feed"><svg><use href="${SPRITE}#i-trash"/></svg></button></li>`).join('');
   ul.hidden = !st.failed.length;
   $('#feeds-failed-actions').hidden = !st.failed.length;
   $('#remove-failed-btn').textContent = `Remove all failed (${st.failed.length})`;

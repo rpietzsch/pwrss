@@ -6,6 +6,8 @@ See AGENTS.md for conventions.
 
 ## Next
 
+- [ ] Diagnose why `https://hackernews.com/rss` (redirects to news.ycombinator.com/rss) fails on the deployed Worker: read the reason now shown in Settings after Retry failed (spec: #local-feeds-default-source)
+- [ ] Edit a feed's URL in Manage feeds (fix moved feeds without removing and re-adding) (spec: #managing-feeds)
 - [ ] Show a hint per failure type (404/410 = gone for good; 403/530/timeouts may be the site blocking the proxy, so retry later) (spec: #local-feeds-default-source)
 - [ ] Verify local feeds end to end on the deployed site with the real Worker and a real OPML (spec: #local-feeds-default-source)
 - [ ] Optional: obtain a Feedly OAuth client ID/secret and test sign-in against the real service (spec: #accounts-and-proxy)
@@ -26,6 +28,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-09 — Feed fetching hardening: 6-at-a-time with per-fetch timeouts, honest feed-reader user agent, one retry on 429/5xx, big feeds cut to newest items, failure list shows URL and server message. Checked against the user's real OPML (70 feeds; most failures are dead feeds)
 - [x] 2026-11-09 — Failed feeds: full scrollable list, per-feed remove, Retry failed, Remove all failed (spec: #local-feeds-default-source)
 - [x] 2026-11-09 — Icons switched from hand-drawn SVG to the vendored Lucide sprite; test guards that every icon exists
 - [x] 2026-11-09 — Manage feeds: add (with category), remove, rename, move between categories, reorder feeds and categories, create/rename/delete categories; OPML export reflects it; re-import never overwrites edits (spec: #managing-feeds)
