@@ -86,11 +86,13 @@ server.listen(0, async () => {
     const PROXY = 'https://proxy.test';
     const seen = { requests: [], pages: 0 };
     let etagMode = true;
+    let feedsStatus = 200;
     await p.route(PROXY + '/**', (route) => {
       const req = route.request();
       const h = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: h });
       const u = new URL(req.url());
+      if (u.pathname === '/feeds' && feedsStatus !== 200) return route.fulfill({ status: feedsStatus, contentType: 'text/plain', headers: h, body: 'Not found' });
       if (u.pathname === '/feeds') {
         const { feeds } = JSON.parse(req.postData());
         seen.requests.push(feeds);
@@ -111,7 +113,7 @@ server.listen(0, async () => {
 
     const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
     await p.route('https://alpha.example/img/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
-    await p.evaluate((px) => localStorage.setItem('pwrss.settings', JSON.stringify({ proxy: px })), PROXY);
+    await p.evaluate((px) => localStorage.setItem('pwrss.settings', JSON.stringify({ proxy: px + '/health/' })), PROXY);
     await p.reload();
     check('welcome offers import', await p.locator('.welcome').getByText('Import feeds').isVisible());
     await p.click('.welcome [data-action="settings"]');
@@ -306,6 +308,14 @@ server.listen(0, async () => {
     })();
     const toastOnTop = px.every((v) => v < 110);
     check('toast is drawn above the open Settings dialog', toastOnTop, px);
+
+    // a proxy 404 explains itself
+    feedsStatus = 404;
+    await p.click('#feeds-errors li:has-text("Dead Feed") [data-failed-retry]');
+    await p.waitForFunction(() => /no \/feeds endpoint/.test(document.querySelector('#toast')?.textContent || ''));
+    const msg404 = await p.textContent('#toast');
+    check('proxy 404 names the endpoint, what it said and the likely cause', /Proxy error 404 at proxy\.test\/feeds/.test(msg404) && /Not found/.test(msg404) && /workers\.dev/.test(msg404), msg404);
+    feedsStatus = 200;
 
     // edit URL from the failed list: Loose Feed -> a working address
     FEEDS['https://revived.example/feed'] = subst(fx('rss.xml')).replace('Alpha Blog', 'Revived Blog').replace(/alpha-(\d)/g, 'rev-$1');

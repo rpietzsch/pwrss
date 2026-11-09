@@ -1,6 +1,6 @@
 // Local backend: feeds from an OPML import, fetched through the proxy, parsed in the
 // browser and stored in IndexedDB. Implements the same interface as Feedly / DemoFeedly.
-import { ApiError, proxyFetchPage } from './api.js';
+import { ApiError, cleanProxy, proxyFetchPage } from './api.js';
 import { parseFeed } from './feedparse.js';
 import { parseOPML, buildOPML } from './opml.js';
 import * as store from './store.js';
@@ -42,7 +42,7 @@ export class LocalFeeds {
   constructor({ proxy, proxyKey } = {}) {
     this.local = true;
     this.userId = UID;
-    this.proxy = (proxy || '').trim().replace(/\/+$/, '');
+    this.proxy = cleanProxy(proxy);
     this.proxyKey = proxyKey || '';
     this.catOrder = [];       // category labels in display order
     this.feeds = new Map();   // id -> feed record
@@ -377,7 +377,15 @@ export class LocalFeeds {
       throw new ApiError(navigator.onLine ? 'Could not reach the proxy. Check the proxy URL in Settings.' : 'You are offline', 0);
     }
     if (res.status === 403) throw new ApiError('The proxy rejected this app (origin or proxy key). Check Settings.', 403);
-    if (!res.ok) throw new ApiError(`Proxy error ${res.status}`, res.status);
+    if (!res.ok) {
+      let said = '';
+      try { said = (await res.text()).replace(/\s+/g, ' ').trim().slice(0, 80); } catch {}
+      const where = new URL(this.proxy + path).host + path;
+      const hint = res.status === 404
+        ? ` The proxy has no ${path} endpoint at this address. Check that the Proxy URL is just the Worker address (…workers.dev, no extra path) and that the Worker is up to date.`
+        : '';
+      throw new ApiError(`Proxy error ${res.status} at ${where}${said ? ` (“${said}”)` : ''}.${hint}`, res.status);
+    }
     return res.json();
   }
 

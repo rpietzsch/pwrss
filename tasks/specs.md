@@ -43,6 +43,8 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 
 - Settings has a source: **Local feeds** (default) or **Feedly account**. Feedly needs API access that Feedly now restricts, so it is optional.
 - The proxy is needed for local feeds (CORS) and for Reader mode.
+- The Proxy URL is cleaned when used: trailing slashes and a pasted `/health`, `/feeds` or `/fetch` are removed.
+- A proxy error names the endpoint that was called and what the proxy answered. A 404 explains the likely causes (wrong Proxy URL, outdated Worker).
 - With the Feedly source, the user connects with OAuth sign-in or a developer access token (see below). Tokens are stored only in localStorage.
 - All Feedly API calls (`/v3/*`), feed fetches (`/feeds`) and Reader-mode page fetches (`/fetch?url=`) go through the user's proxy worker. With no proxy configured, calls fail with an explanation that points to Settings.
 - **Sign in with Feedly (OAuth)** is the regular login. It needs a Feedly-issued client ID and secret, stored as Worker secrets `FEEDLY_CLIENT_ID` and `FEEDLY_CLIENT_SECRET`. The client secret never reaches the browser.

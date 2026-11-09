@@ -4,6 +4,11 @@
 // proxy (see /worker). The proxy mirrors /v3/* to api.feedly.com and exposes
 // /fetch?url=… for Reader mode.
 
+// Proxy URL as entered by a person: drop trailing slashes and a pasted endpoint (/health, /feeds, /fetch).
+export function cleanProxy(url) {
+  return (url || '').trim().replace(/\/+$/, '').replace(/\/(health|feeds|fetch)$/i, '').replace(/\/+$/, '');
+}
+
 export class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -16,7 +21,7 @@ export class Feedly {
   constructor({ token, proxy, proxyKey, oauth, onOAuth, onAuthLost }) {
     this.oauth = oauth && oauth.access ? { ...oauth } : null;
     this.token = this.oauth ? this.oauth.access : token;
-    this.proxy = (proxy || '').trim().replace(/\/+$/, '');
+    this.proxy = cleanProxy(proxy);
     this.proxyKey = proxyKey || '';
     this.onOAuth = onOAuth;
     this.onAuthLost = onAuthLost;
@@ -36,7 +41,7 @@ export class Feedly {
 
   // ----- OAuth (the proxy holds the client secret) -----
   static async authPost(proxy, proxyKey, path, body) {
-    const base = (proxy || '').trim().replace(/\/+$/, '');
+    const base = cleanProxy(proxy);
     if (!base) throw new ApiError('Set the proxy URL first (Settings).', 0);
     let res;
     try {
@@ -188,7 +193,7 @@ export class Feedly {
 
 // Fetch an article page through the proxy (Reader mode); shared by all backends.
 export async function proxyFetchPage(proxy, proxyKey, url) {
-  const base = (proxy || '').trim().replace(/\/+$/, '');
+  const base = cleanProxy(proxy);
   if (!base) throw new ApiError('Reader mode needs the proxy (Settings).', 0);
   const u = new URL(base + '/fetch');
   u.searchParams.set('url', url);

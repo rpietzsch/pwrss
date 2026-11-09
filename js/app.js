@@ -1,4 +1,4 @@
-import { Feedly, ApiError } from './api.js';
+import { Feedly, ApiError, cleanProxy } from './api.js';
 import { DemoFeedly } from './demo.js';
 import { LocalFeeds } from './local.js';
 import { parseOPML } from './opml.js';
@@ -768,7 +768,7 @@ async function handleOAuthReturn() {
 let localTmp = null;
 async function getLocal() {
   const lf = S.api?.local ? S.api : (localTmp ??= new LocalFeeds(S.settings));
-  lf.proxy = (S.settings.proxy || '').replace(/\/+$/, '');
+  lf.proxy = cleanProxy(S.settings.proxy);
   lf.proxyKey = S.settings.proxyKey || '';
   await lf.init();
   return lf;
@@ -1096,6 +1096,7 @@ function collectForm() {
     if (!input) continue;
     S.settings[k] = input.type === 'checkbox' ? input.checked : input.type === 'range' ? Number(input.value) : input.value.trim();
   }
+  S.settings.proxy = cleanProxy(S.settings.proxy);
   LS.set('settings', S.settings);
 }
 el.form.addEventListener('submit', (ev) => {
