@@ -337,6 +337,7 @@ async function openStream(id, { keepScroll = false } = {}) {
   S.entries = [];
   S.byId.clear();
   S.continuation = null;
+  S.loadedAt = Date.now(); // "mark all as read" covers what existed at this moment
   userScrolled = false;
   if (!keepScroll) el.entries.scrollTop = 0;
   renderSources();
@@ -674,9 +675,10 @@ async function markAll() {
   const total = Math.max(countOf(id), loadedUnread.length);
   if (!total) { toast('Nothing to mark'); return; }
   if (!confirm(`Mark ${total} article${total === 1 ? '' : 's'} in “${streamTitle(id)}” as read?`)) return;
-  // Don't mark articles that arrived after this list was loaded.
-  const asOf = S.settings.sort === 'newest' && S.entries.length
-    ? Math.max(...S.entries.map((e) => e.crawled || e.published || 0)) + 1 : Date.now();
+  // Don't mark articles that arrived after this list was loaded. (Not the newest crawl time among the visible
+  // articles: a feed fetched a moment later than those would otherwise be skipped.)
+  const asOf = S.api.local ? (S.loadedAt || Date.now())
+    : S.settings.sort === 'newest' && S.entries.length ? Math.max(...S.entries.map((e) => e.crawled || e.published || 0)) + 1 : Date.now();
   try {
     const r = id === TODAY || id === S.api.savedId() ? null : S.api.markStreamRead(id, asOf);
     if (r) await r;

@@ -4,6 +4,7 @@ import { ApiError, cleanProxy, proxyFetchPage } from './api.js';
 import { parseFeed } from './feedparse.js';
 import { parseOPML, buildOPML } from './opml.js';
 import { isHNApi, parseHNApi } from './hnapi.js';
+import { remoteState } from './sync.js';
 import * as store from './store.js';
 
 const UID = 'local';
@@ -459,20 +460,18 @@ export class LocalFeeds {
     const touched = [];
     for (const f of list) {
       if (this.sync.dirty[f.id]) continue; // changed again here since the request started
+      const rs = remoteState(f);
       const e = this.entries.get(f.id);
       if (e) {
-        const unread = !f.read;
-        const saved = !!f.saved;
-        if (e.unread !== unread) { e.unread = unread; changedIds.add(f.id); touched.push(e); }
-        if ((e.tags.length > 0) !== saved) { e.tags = saved ? [{ id: this.savedId() }] : []; changedIds.add(f.id); touched.push(e); }
-      } else if (f.saved && f.entry) {
-        const p = f.entry;
-        const ne = { ...p, id: f.id, crawled: Date.now(), tags: [{ id: this.savedId() }], unread: !f.read };
+        if (rs.read !== undefined && e.unread === rs.read) { e.unread = !rs.read; changedIds.add(f.id); touched.push(e); }
+        if (rs.saved !== undefined && (e.tags.length > 0) !== rs.saved) { e.tags = rs.saved ? [{ id: this.savedId() }] : []; changedIds.add(f.id); touched.push(e); }
+      } else if (rs.saved && f.entry) {
+        const ne = { ...f.entry, id: f.id, crawled: Date.now(), tags: [{ id: this.savedId() }], unread: rs.read === undefined ? true : !rs.read };
         this.entries.set(f.id, ne);
         changedIds.add(f.id); touched.push(ne);
-      } else if (f.read) {
+      } else if (rs.read) {
         this.sync.remote[f.id] = { read: true, at: f.readAt };
-      } else {
+      } else if (rs.read === false) {
         delete this.sync.remote[f.id];
       }
     }
@@ -644,11 +643,27 @@ export class LocalFeeds {
     f.errorDetail = null;
 
     let added = 0;
-    for (const it of parsed.items) {
-      if (!it.guid) continue;
-      const id = 'e' + hash(f.id + '\n' + it.guid);
-      const link = it.link ? abs(it.link, base) : '';
-      const cur = this.entries.get(id);
+    const batch = parsed.items.filter((it) => it.guid);
+    const idOf = (it) => 'e' + hash(f.id + '\n' + it.guid);
+    const linkOf = (it) => (it.link ? abs(it.link, base) : '');
+    // A feed may change its GUIDs but keep its links: match by link, but only when that is unambiguous.
+    const batchIds = new Set(batch.map(idOf));
+    const linkCount = new Map();
+    for (const it of batch) { const l = linkOf(it); if (l) linkCount.set(l, (linkCount.get(l) || 0) + 1); }
+    const byLink = new Map();
+    for (const e of this.entries.values()) if (e.feedId === f.id && e.alternate?.[0]?.href) byLink.set(e.alternate[0].href, e);
+
+    const listed = [];
+    for (const it of batch) {
+      const guidId = idOf(it);
+      const link = linkOf(it);
+      let cur = this.entries.get(guidId);
+      if (!cur && link && linkCount.get(link) === 1) {
+        const c = byLink.get(link);
+        if (c && !batchIds.has(c.id)) cur = c;
+      }
+      const id = cur ? cur.id : guidId;
+      listed.push(id);
       const published = it.published ?? cur?.published ?? now;
       const fields = {
         title: it.title || cur?.title || '(untitled)',
@@ -661,13 +676,13 @@ export class LocalFeeds {
         visual: it.image ? { url: abs(it.image, base) } : undefined,
         feedTitle: f.title,
       };
+      const sig = JSON.stringify(fields);
       if (cur) {
-        Object.assign(cur, fields);
-        changedEntries.push(cur);
+        if (cur.sig !== sig) { Object.assign(cur, fields); cur.sig = sig; changedEntries.push(cur); }
       } else {
         const remote = this.sync.remote[id];
         const e = {
-          id, feedId: f.id, crawled: now, tags: [],
+          id, feedId: f.id, crawled: now, tags: [], sig,
           unread: !(first && now - published > FIRST_FETCH_UNREAD_MS) && !remote?.read,
           ...fields,
         };
@@ -677,6 +692,8 @@ export class LocalFeeds {
         if (e.unread) added++;
       }
     }
+    // What the feed lists right now. An empty answer is not trusted (it may be a glitch).
+    if (listed.length) f.listed = listed;
     return { ok: true, added };
   }
 
@@ -689,9 +706,14 @@ export class LocalFeeds {
     }
     const drop = [];
     for (const [feedId, list] of byFeed) {
-      if (!this.feeds.has(feedId)) { drop.push(...list.filter((e) => !e.tags.length)); continue; }
-      list.sort((a, b) => b.published - a.published);
-      list.forEach((e, i) => {
+      const f = this.feeds.get(feedId);
+      if (!f) { drop.push(...list.filter((e) => !e.tags.length)); continue; }
+      // Without a record of what the feed lists, keep everything. Articles it still lists are never dropped:
+      // they would simply come back as new, unread articles on the next refresh.
+      if (!f.listed) continue;
+      const listed = new Set(f.listed);
+      const gone = list.filter((e) => !listed.has(e.id)).sort((a, b) => b.published - a.published);
+      gone.forEach((e, i) => {
         if (!e.unread && !e.tags.length && (now - e.published > KEEP_MS || i >= MAX_PER_FEED)) drop.push(e);
       });
     }

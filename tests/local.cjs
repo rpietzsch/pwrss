@@ -82,6 +82,18 @@ server.listen(0, async () => {
     check('HN hosts and API addresses are recognised', JSON.stringify(hn.hosts) === '[true,true,true,false]' && JSON.stringify(hn.api) === '[true,true,false]', hn);
     check('HN replacement: front page by default, newest when asked', hn.repl[0].includes('search_by_date') && hn.repl[1].includes('tags=front_page'), hn.repl);
 
+    const rsx = await p.evaluate(async () => {
+      const { remoteState } = await import('./js/sync.js');
+      return [
+        remoteState({ read: false, readAt: 0, saved: true, savedAt: 5 }),   // created by saving: no read state yet
+        remoteState({ read: true, readAt: 9, saved: false, savedAt: 0 }),   // created by reading: no saved state yet
+        remoteState({ read: false, readAt: 7, saved: false, savedAt: 8 }),  // both set
+      ];
+    });
+    check('sync: a flag made by saving does not change read state', rsx[0].read === undefined && rsx[0].saved === true, rsx[0]);
+    check('sync: a flag made by reading does not change saved state', rsx[1].saved === undefined && rsx[1].read === true, rsx[1]);
+    check('sync: fields that were set are applied as they are', rsx[2].read === false && rsx[2].saved === false, rsx[2]);
+
     const r = parsed.rss;
     check('RSS: title, site, items', r.title === 'Alpha Blog' && r.website === 'https://alpha.example/' && r.items.length === 3, r);
     check('RSS: entities decoded in title', r.items[0].title === 'Fresh & New', r.items[0].title);

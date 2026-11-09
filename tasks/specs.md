@@ -24,7 +24,9 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - An automatic refresh reloads the list only when it is scrolled to the top. Otherwise it shows "N new articles" and leaves the list alone.
 - When a feed is fetched for the first time, only articles from the last 7 days are unread. Older ones start as read.
 - Article identity is the feed plus the item's GUID (or link). Updated items keep their read and saved state.
-- Read, unsaved articles older than 60 days, or beyond the newest 300 of a feed, are pruned. Unread and saved articles are never pruned.
+- Read articles are never removed while their feed still lists them, however old they are or however many the feed lists. A refresh therefore never turns a read article back into an unread one.
+- Read, unsaved articles that their feed no longer lists are removed once they are older than 60 days, or when more than 300 such articles pile up per feed. Unread and saved articles are never removed.
+- If a feed changes an article's GUID but keeps its link, the article keeps its identity: no duplicate appears and its read/saved state stays. This applies only when that link is unique within the fetched feed.
 - Previews use the feed's own content. Reader mode is unchanged: it fetches the article page through the proxy and extracts it with Readability.
 
 ## Hacker News
@@ -44,6 +46,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Changes made on a device are queued with a timestamp and sent together. A sync runs: after turning sync on, shortly after local changes (a few seconds), when the app starts, when it returns to the foreground after more than a minute, and on **Sync now**. It works offline: changes wait in the queue until the next successful sync.
 - Conflicts: for read and for saved, the change with the latest timestamp wins, per article. The feed list is replaced as a whole by the most recent change. A device whose copy is older receives the newer list, even if it also changed something in between.
 - When the feed list from the cloud adds feeds, they are fetched at once. Feeds missing from the cloud copy are removed (their unsaved articles with them). An empty cloud list never removes feeds from a device that has some.
+- A synced state only changes what was actually set elsewhere: saving or unsaving an article on one device never changes its read state on another, and the other way round.
 - Articles unknown to a device get their synced read state when they first arrive, so an article read elsewhere appears read.
 - Turning sync on for the first time uploads the current feed list, the saved articles, and the read articles from the last 30 days. Older read states are not uploaded.
 - The cloud keeps read states for 90 days and saved articles for as long as they are saved. A device that stays offline longer than 90 days can miss older read states.
@@ -96,6 +99,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Infinite scroll loads 40 articles at a time.
 - Articles marked read stay in the list until the next refresh.
 - "Mark all as read" (`Shift+A`) asks for confirmation. It only marks articles up to the newest one loaded, so newer arrivals stay unread.
+- "Mark all as read" marks every unread article of the stream that existed when the list was loaded, including ones beyond the visible page and ones from feeds fetched later than the visible articles. Articles that arrive after the list was loaded stay unread.
 - Pull-to-refresh, the refresh button and `Shift+R` sync pending changes, then reload sources, counts and the stream.
 - The app refreshes automatically when it returns to the foreground after more than 15 minutes.
 

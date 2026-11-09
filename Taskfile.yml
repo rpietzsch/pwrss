@@ -48,6 +48,7 @@ tasks:
       - node tests/worker.cjs
       - node tests/sync-store.cjs
       - node tests/local.cjs .
+      - node tests/readstate.cjs .
       - node tests/sync.cjs .
       - node tests/smoke.cjs .
 
@@ -56,6 +57,7 @@ tasks:
     deps: [build]
     cmds:
       - node tests/local.cjs {{.OUT}}
+      - node tests/readstate.cjs {{.OUT}}
       - node tests/sync.cjs {{.OUT}}
       - node tests/smoke.cjs {{.OUT}}
 

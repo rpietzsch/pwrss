@@ -3,6 +3,14 @@ import { ApiError } from './api.js';
 
 const PUSH_BATCH = 2000;
 
+/**
+ * What a server flag says about an article. A field counts only if it was ever set (timestamp > 0):
+ * a flag created by saving an article has no read state yet and must not mark it unread.
+ */
+export function remoteState(f) {
+  return { read: f.readAt > 0 ? !!f.read : undefined, saved: f.savedAt > 0 ? !!f.saved : undefined };
+}
+
 export class SyncClient {
   constructor(lf) {
     this.lf = lf;

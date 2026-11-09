@@ -30,6 +30,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-09 — Read state survives refresh: never drop articles a feed still lists, Mark all covers everything loaded before the list (not just the newest visible), stable identity when a feed changes GUIDs, sync flags no longer overwrite unset fields (spec: #local-feeds-default-source, #sync-across-devices)
 - [x] 2026-11-09 — Cross-device sync through the Worker (SQLite Durable Object): feed list and read/saved state, offline queue, latest change wins; two-device end-to-end test (spec: #sync-across-devices)
 - [x] 2026-11-09 — Hacker News via the public HN Search API fetched directly by the browser (HN refuses Cloudflare's addresses); one-tap switch in the failed list (spec: #hacker-news)
 - [x] 2026-11-09 — Proxy URL cleaned (trailing slash, pasted /health /feeds /fetch); proxy errors name the endpoint and what the proxy said, 404 explains likely causes (spec: #accounts-and-proxy)
