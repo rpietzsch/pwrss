@@ -5,7 +5,7 @@ const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/demo.js', 'js/reader.js', 'js/gestures.js',
   'js/local.js', 'js/store.js', 'js/feedparse.js', 'js/opml.js',
-  'vendor/purify.min.js', 'vendor/Readability.js',
+  'vendor/purify.min.js', 'vendor/Readability.js', 'vendor/lucide-sprite.svg',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 

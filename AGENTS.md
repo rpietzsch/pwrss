@@ -11,6 +11,7 @@ Guidance for AI coding agents (and humans) working on Pwrss, a static PWA feed r
 - Backends (`js/local.js`, `js/api.js` for Feedly, `js/demo.js`) share one interface. Keep them in step: the demo backend must implement every method the app calls. `refreshAll` exists only on the local backend and is feature-checked.
 - Browsers can't fetch feeds, article pages or Feedly directly (CORS), so every network call goes through the proxy in `worker/`. Never send the user's token anywhere else.
 - Sanitize all feed and page HTML with `sanitize()` in `js/reader.js` before inserting it into the DOM.
+- Icons come from **Lucide** (vendored sprite `vendor/lucide-sprite.svg`). Never hand-draw SVG icons. To add one, add it to the map in `scripts/lucide-sprite.cjs` and run `task vendor` (or the script directly), then use `#i-<id>`.
 - Theming uses the CSS variables in `styles.css`. Every color needs a light and a dark value, and `auto` (system) is the default.
 
 ## Task tracking: `tasks/`

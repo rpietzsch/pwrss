@@ -155,8 +155,8 @@ svg { width: 22px; height: 22px; flex: none; }
 .icon-btn:active { transform: scale(.94); }
 .icon-btn.on { color: var(--accent); }
 #star-btn.on { color: var(--star); }
-#read-btn use[href="#i-dot-fill"] { color: var(--unread); }
-#filter-btn use[href="#i-dot-fill"] { color: var(--unread); }
+#read-btn use[href$="#i-dot-fill"] { color: var(--unread); }
+#filter-btn use[href$="#i-dot-fill"] { color: var(--unread); }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* Toolbar at the bottom (thumb reach) — touch/tablet layouts only; wide desktop keeps bars on top */
@@ -365,7 +365,7 @@ dialog {
   background: var(--bg-elev); color: var(--fg); box-shadow: var(--shadow);
 }
 dialog::backdrop { background: rgba(0, 0, 0, .35); backdrop-filter: blur(2px); }
-dialog form { display: flex; flex-direction: column; max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); }
+dialog form, dialog .dlg-form { display: flex; flex-direction: column; max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); }
 .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 4px 20px; }
 .dlg-head h2 { margin: 0; font-size: 19px; }
 .dlg-body { overflow-y: auto; padding: 0 20px 8px; }
@@ -418,3 +418,28 @@ label.btn { display: inline-flex; align-items: center; justify-content: center; 
 .feed-errors { margin: 0 0 10px; padding-left: 18px; font-size: 13px; color: var(--fg-2); }
 .feed-errors li { margin: 2px 0; }
 .dlg-body h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* ---------- manage feeds ---------- */
+html:not([data-backend="local"]) #manage-btn { display: none; }
+button.wide { width: 100%; margin-bottom: 6px; }
+#manage-body { padding-bottom: 12px; }
+.mg-add { display: flex; gap: 8px; margin: 4px 0 10px; }
+.mg-add input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 15px; }
+.mg-add select { max-width: 40%; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 14px; }
+.mg-cat { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.mg-cat-head { display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 12px; background: var(--bg); }
+.mg-cat-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
+.mg-cat-head .count { margin-right: 4px; }
+.mg-feed { padding: 8px 6px 8px 12px; border-top: 1px solid var(--line); }
+.mg-title { min-width: 0; }
+.mg-title span { display: block; font-size: 15px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-title small { display: block; font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-title small.err { color: #d33; }
+.mg-ctl { display: flex; align-items: center; gap: 2px; }
+.mg-feed .mg-ctl { margin-top: 4px; }
+.mg-ctl select { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); font-size: 13px; margin-right: 4px; }
+.mg-ctl .icon-btn { width: 36px; height: 36px; }
+.mg-ctl .icon-btn svg { width: 19px; height: 19px; }
+.mg-ctl .icon-btn:disabled { opacity: .25; pointer-events: none; }
+.mg-ctl .icon-btn.danger { color: #d33; }
+.mg-empty { padding: 10px 12px; font-size: 13px; color: var(--fg-3); border-top: 1px solid var(--line); }

@@ -5,8 +5,10 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 ## Local feeds (default source)
 
 - Pwrss works without any Feedly account. The feed list comes from an **OPML file** (Feedly: `feedly.com/i/opml`), imported in Settings → Feeds.
-- OPML folders become categories; feeds at the top level are "Uncategorized". Duplicate feed URLs are merged. Importing again adds new feeds and updates titles/categories without losing articles or read state.
-- Settings can also export the current feeds as OPML, add a single feed by URL (https:// is assumed when the scheme is missing), and delete all local data after confirmation.
+- OPML folders become categories, in file order; feeds at the top level are "Uncategorized". Duplicate feed URLs are merged.
+- Importing again adds new feeds and categories at the end. Feeds already present are left unchanged, so edits made in the app (titles, categories, order) are never overwritten, and their articles and read state are kept.
+- Export OPML (Settings and Manage feeds) writes the current state: categories and feeds in their current order, renamed titles, empty categories included, and Uncategorized feeds last. Importing that file again reproduces the same structure.
+- Settings can also delete all local data after confirmation.
 - Articles, feeds and read/saved state are stored on this device (IndexedDB). There is no sync between devices.
 - The proxy's `/feeds` endpoint fetches feeds in batches of up to 25. The app parses RSS 2.0, RSS 1.0 (RDF) and Atom. A feed that can't be fetched or parsed shows up as failed in Settings and never blocks the others.
 - Refresh uses conditional requests (ETag / Last-Modified), so unchanged feeds cost almost nothing.
@@ -17,6 +19,17 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Article identity is the feed plus the item's GUID (or link). Updated items keep their read and saved state.
 - Read, unsaved articles older than 60 days, or beyond the newest 300 of a feed, are pruned. Unread and saved articles are never pruned.
 - Previews use the feed's own content. Reader mode is unchanged: it fetches the article page through the proxy and extracts it with Readability.
+
+## Managing feeds
+
+- **Manage feeds** opens from the sources header (local source only) and from Settings → Feeds. It lists categories in order, each with its feeds in order, and Uncategorized last.
+- **Add feed**: a URL field with a category choice (Uncategorized by default). The feed is fetched and parsed first. If that fails, nothing is added and the reason is shown. The feed is added at the end of its category. Adding a feed that is already followed is refused.
+- **Remove feed** asks for confirmation, then deletes the feed and its unsaved articles. Saved articles stay, with their feed name.
+- **Rename feed**: changes the title shown everywhere. It survives refreshes.
+- **Move feed to another category**: from the feed's category menu. It lands at the end of that category and keeps its articles and read state.
+- **Reorder**: feeds move up/down within their category; categories move up/down among categories. The sources list and OPML export use this order. For local feeds the sources list isn't sorted alphabetically.
+- **Categories**: create (empty categories are allowed and are kept), rename (names must be unique), and delete. Deleting a category keeps its feeds and makes them Uncategorized.
+- Each change applies immediately, with no extra Save step. The sources list and unread counts update behind the dialog. If the open stream was removed, the list switches to All.
 
 ## Accounts and proxy
 

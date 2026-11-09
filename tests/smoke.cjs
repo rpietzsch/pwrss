@@ -17,6 +17,16 @@ const server = http.createServer((req, res) => {
 });
 
 let failures = 0;
+// Every <use> icon on the page must exist in the vendored Lucide sprite.
+const iconsOk = (page) => page.evaluate(async () => {
+  const svg = await (await fetch('vendor/lucide-sprite.svg')).text();
+  const ids = new Set([...svg.matchAll(/<symbol id="([^"]+)"/g)].map((m) => m[1]));
+  const uses = [...document.querySelectorAll('use')].map((u) => (u.getAttribute('href') || '').split('#')[1]);
+  const missing = [...new Set(uses.filter((id) => !ids.has(id)))];
+  const broken = [...document.querySelectorAll('button.icon-btn svg')].filter((s) => s.getBoundingClientRect().width && !s.querySelector('use')).length;
+  return { missing, count: uses.length, broken };
+});
+
 const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (!ok) failures++; };
 
 server.listen(0, async () => {
@@ -32,8 +42,16 @@ server.listen(0, async () => {
     await p.waitForSelector('.entry');
     check('entries render', (await p.locator('.entry').count()) > 10);
 
+    {
+      const r = await iconsOk(p);
+      check('all list/toolbar icons exist in the Lucide sprite', r.count > 8 && r.missing.length === 0, r);
+    }
     await p.locator('.entry').nth(1).click();
     await p.waitForSelector('.art-head');
+    {
+      const r = await iconsOk(p);
+      check('all article icons exist in the Lucide sprite', r.missing.length === 0, r);
+    }
     check('open marks read', (await p.locator('.entry').nth(1).getAttribute('class')).includes(' read'));
 
     await p.keyboard.press('r');

@@ -68,18 +68,19 @@ tasks:
       - node scripts/icons.cjs icons
 
   vendor:
-    desc: Update vendored Readability and DOMPurify from npm
+    desc: Update vendored Readability, DOMPurify and the Lucide icon sprite from npm
     vars:
       TMP:
         sh: mktemp -d
     cmds:
-      - cd {{.TMP}} && npm pack @mozilla/readability dompurify --silent
+      - cd {{.TMP}} && npm pack @mozilla/readability dompurify lucide-static --silent
       - cd {{.TMP}} && for f in *.tgz; do mkdir -p "${f%.tgz}" && tar xzf "$f" -C "${f%.tgz}"; done
       - cp {{.TMP}}/mozilla-readability-*/package/Readability.js vendor/
       - cp {{.TMP}}/mozilla-readability-*/package/LICENSE.md vendor/Readability.LICENSE.md
       - cp {{.TMP}}/dompurify-*/package/dist/purify.min.js vendor/
       - cp {{.TMP}}/dompurify-*/package/LICENSE vendor/DOMPurify.LICENSE
       - sed -i.bak 's#//\# sourceMappingURL=.*##' vendor/purify.min.js && rm vendor/purify.min.js.bak
+      - node scripts/lucide-sprite.cjs {{.TMP}}/lucide-static-*/package
       - rm -rf {{.TMP}}
 
   worker:dev:

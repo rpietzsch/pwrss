@@ -43,8 +43,10 @@ const el = {
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
-const icon = (name) => `<svg><use href="#i-${name}"/></svg>`;
-const setIcon = (btn, name) => { btn.querySelector('use').setAttribute('href', '#i-' + name); };
+// Icons: Lucide, vendored as a sprite (vendor/lucide-sprite.svg, see scripts/lucide-sprite.cjs).
+const SPRITE = 'vendor/lucide-sprite.svg';
+const icon = (name) => `<svg><use href="${SPRITE}#i-${name}"/></svg>`;
+const setIcon = (btn, name) => { btn.querySelector('use').setAttribute('href', `${SPRITE}#i-${name}`); };
 
 const tpl = document.createElement('template');
 function textOf(html) {
@@ -196,8 +198,7 @@ function renderSources() {
       byCat.get(c.id).push(s);
     }
   }
-  const feedRows = (subs) => subs
-    .slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+  const feedRows = (subs) => (api.local ? subs : subs.slice().sort((a, b) => (a.title || '').localeCompare(b.title || '')))
     .filter((s) => !unreadOnly || countOf(s.id) > 0 || s.id === S.streamId)
     .map((s) => row(s.id, s.title || s.website || s.id, favicon(s.id, s.title), countOf(s.id), 'feed')).join('');
 
@@ -633,6 +634,8 @@ const actions = {
   'mark-all': () => markAll(),
   'cycle-theme': () => cycleTheme(),
   login: () => login(),
+  manage: () => openManage(),
+  'close-manage': () => dlgManage.close(),
   demo: () => { S.settings.demo = true; LS.set('settings', S.settings); el.settings.close(); start(); },
   logout: () => {
     if (!confirm('Sign out of Feedly and remove the token from this device? Your local feeds stay.')) return;
@@ -794,14 +797,11 @@ $('#opml-file').addEventListener('change', async (ev) => {
     const lf = await getLocal();
     const r = await lf.importOPML(await file.text());
     if (!r.total) { toast('No feeds found in that file', 4000); return; }
-    toast(`Imported ${r.added} feed${r.added === 1 ? '' : 's'}${r.updated ? ` (${r.updated} updated)` : ''}`, 2500);
+    toast(`Imported ${r.added} new feed${r.added === 1 ? '' : 's'}${r.existing ? ` (${r.existing} already there)` : ''}`, 2800);
     await useLocalAndRestart();
     if (!S.settings.proxy) { toast('Now add your proxy URL in Settings to fetch the feeds.', 6000); openSettings(); }
+    else if (r.added && S.api?.local) refresh(); // fetch the new feeds now (unchanged ones answer 304)
   } catch (e) { fail(e); }
-});
-
-$('#add-feed-url').addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter') { ev.preventDefault(); actions['add-feed'](); }
 });
 
 Object.assign(actions, {
@@ -813,25 +813,6 @@ Object.assign(actions, {
       const a = Object.assign(document.createElement('a'), { href: url, download: 'pwrss-feeds.opml' });
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch (e) { fail(e); }
-  },
-  'add-feed': async () => {
-    const input = $('#add-feed-url');
-    const value = input.value.trim();
-    if (!value) return;
-    try {
-      collectForm();
-      const lf = await getLocal();
-      toast('Adding feed…', 30000);
-      const r = await lf.addFeed(value);
-      input.value = '';
-      toast(`Added “${r.feed.title}”`, 2200);
-      if (S.api === lf) {
-        S.settings = { ...S.settings, source: 'local' }; LS.set('settings', S.settings);
-        await loadMeta(); await openStream(S.streamId); updateFeedStatus();
-      } else {
-        await useLocalAndRestart();
-      }
     } catch (e) { fail(e); }
   },
   'reset-local': async () => {
@@ -846,6 +827,147 @@ Object.assign(actions, {
     } catch (e) { fail(e); }
   },
 });
+
+// ---------- manage feeds ----------
+const dlgManage = $('#manage');
+let manageDirty = false; // changes made while no local source was running
+
+const btn = (act, label, ic, extra = '', attrs = '') => `<button type="button" class="icon-btn ${extra}" data-mg="${act}" aria-label="${label}" title="${label}" ${attrs}><svg><use href="${SPRITE}#i-${ic}"/></svg></button>`;
+
+async function renderManage() {
+  const lf = await getLocal();
+  const opts = (cur) => `<option value="">Uncategorized</option>${lf.catOrder.map((c) => `<option value="${esc(c)}"${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('')}`;
+  const feedRow = (f, i, n) => `<div class="mg-feed" data-id="${esc(f.id)}">
+      <div class="mg-title"><span>${esc(f.title || f.url)}</span><small class="${f.error ? 'err' : ''}">${esc(f.error ? `Failed: ${f.error}` : hostOf(f.url))}</small></div>
+      <div class="mg-ctl">
+        <select data-mg="move" aria-label="Category">${opts(f.category)}</select>
+        ${btn('feed-up', 'Move up', 'up', '', i === 0 ? 'disabled' : '')}${btn('feed-down', 'Move down', 'down', '', i === n - 1 ? 'disabled' : '')}
+        ${btn('feed-rename', 'Rename', 'edit')}${btn('feed-remove', 'Remove feed', 'trash', 'danger')}
+      </div></div>`;
+  const section = (label, i) => {
+    const list = lf.list(label);
+    return `<section class="mg-cat" data-cat="${esc(label)}">
+      <div class="mg-cat-head"><strong>${esc(label)}</strong><span class="count">${list.length}</span>
+        <span class="mg-ctl">${btn('cat-up', 'Move category up', 'up', '', i === 0 ? 'disabled' : '')}${btn('cat-down', 'Move category down', 'down', '', i === lf.catOrder.length - 1 ? 'disabled' : '')}${btn('cat-rename', 'Rename category', 'edit')}${btn('cat-delete', 'Delete category', 'trash', 'danger')}</span></div>
+      ${list.length ? list.map((f, k) => feedRow(f, k, list.length)).join('') : '<div class="mg-empty">No feeds in this category.</div>'}
+    </section>`;
+  };
+  const loose = lf.list(null);
+  const keepUrl = $('#mg-url')?.value || '';
+  const keepCat = $('#mg-cat')?.value || '';
+  const keepNew = $('#mg-newcat')?.value || '';
+  const scroll = $('#manage-body').scrollTop;
+  $('#manage-body').innerHTML = `
+    <div class="mg-add"><input id="mg-url" type="url" placeholder="Add feed URL" spellcheck="false" autocapitalize="off" autocomplete="off"><select id="mg-cat" aria-label="Category">${opts(keepCat)}</select>${btn('add-feed', 'Add feed', 'plus', 'on')}</div>
+    <div class="mg-add"><input id="mg-newcat" type="text" placeholder="New category" autocomplete="off"><button type="button" class="ghost" data-mg="add-cat">Create</button></div>
+    ${lf.catOrder.map(section).join('')}
+    ${loose.length ? `<section class="mg-cat" data-cat=""><div class="mg-cat-head"><strong>Uncategorized</strong><span class="count">${loose.length}</span></div>${loose.map((f, k) => feedRow(f, k, loose.length)).join('')}</section>` : ''}
+    ${!lf.feeds.size && !lf.catOrder.length ? '<p class="hint">No feeds yet. Add one above, or import an OPML file in Settings.</p>' : ''}`;
+  $('#mg-url').value = keepUrl; $('#mg-newcat').value = keepNew;
+  $('#manage-body').scrollTop = scroll;
+}
+
+async function openManage() {
+  collectFormIfOpen();
+  if (el.settings.open) el.settings.close();
+  await renderManage();
+  if (!dlgManage.open) dlgManage.showModal();
+}
+function collectFormIfOpen() { if (el.settings.open) collectForm(); }
+
+// After any change: refresh sources/counts/list behind the dialog.
+async function afterManage() {
+  if (S.api?.local) {
+    await loadMeta();
+    const valid = S.streamId === S.api.allId() || S.streamId === S.api.savedId() || S.streamId === TODAY
+      || S.subById.has(S.streamId) || S.cats.some((c) => c.id === S.streamId);
+    if (!valid) S.streamId = S.api.allId();
+    await openStream(S.streamId, { keepScroll: true });
+  } else {
+    manageDirty = true;
+  }
+  await renderManage();
+}
+
+dlgManage.addEventListener('close', async () => {
+  if (manageDirty) {
+    manageDirty = false;
+    S.settings = { ...S.settings, source: 'local', demo: false };
+    LS.set('settings', S.settings);
+    S.streamId = null; LS.del('stream');
+    await start();
+  }
+});
+
+dlgManage.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target.id === 'mg-url') { ev.preventDefault(); manageAction('add-feed'); }
+  if (ev.key === 'Enter' && ev.target.id === 'mg-newcat') { ev.preventDefault(); manageAction('add-cat'); }
+});
+dlgManage.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-mg]');
+  if (b && b.tagName === 'BUTTON') manageAction(b.dataset.mg, b);
+});
+dlgManage.addEventListener('change', (ev) => {
+  const sel = ev.target.closest('select[data-mg="move"]');
+  if (sel) manageAction('move', sel);
+});
+
+async function manageAction(act, node) {
+  const feedId = node?.closest('.mg-feed')?.dataset.id;
+  const cat = node?.closest('.mg-cat')?.dataset.cat;
+  try {
+    const lf = await getLocal();
+    switch (act) {
+      case 'add-feed': {
+        const input = $('#mg-url');
+        const url = input.value.trim();
+        if (!url) return;
+        collectFormIfOpen();
+        toast('Adding feed…', 30000);
+        const r = await lf.addFeed(url, $('#mg-cat').value || null);
+        input.value = '';
+        toast(`Added “${r.feed.title}”`, 2200);
+        break;
+      }
+      case 'add-cat': {
+        const input = $('#mg-newcat');
+        await lf.addCategory(input.value);
+        input.value = '';
+        break;
+      }
+      case 'move': await lf.moveFeed(feedId, node.value || null); break;
+      case 'feed-up': await lf.reorderFeed(feedId, -1); break;
+      case 'feed-down': await lf.reorderFeed(feedId, 1); break;
+      case 'feed-rename': {
+        const f = lf.feeds.get(feedId);
+        const name = prompt('Rename feed', f.title || f.url);
+        if (name === null) return;
+        await lf.renameFeed(feedId, name);
+        break;
+      }
+      case 'feed-remove': {
+        const f = lf.feeds.get(feedId);
+        if (!confirm(`Remove “${f.title || f.url}”? Its unsaved articles are deleted; saved ones stay.`)) return;
+        await lf.removeFeed(feedId);
+        break;
+      }
+      case 'cat-up': await lf.reorderCategory(cat, -1); break;
+      case 'cat-down': await lf.reorderCategory(cat, 1); break;
+      case 'cat-rename': {
+        const name = prompt('Rename category', cat);
+        if (name === null) return;
+        await lf.renameCategory(cat, name);
+        break;
+      }
+      case 'cat-delete':
+        if (!confirm(`Delete category “${cat}”? Its feeds are kept as Uncategorized.`)) return;
+        await lf.deleteCategory(cat);
+        break;
+      default: return;
+    }
+    await afterManage();
+  } catch (e) { fail(e); }
+}
 
 // ---------- settings ----------
 function openSettings(welcome = false) {
@@ -958,6 +1080,7 @@ async function start() {
     try { await S.api.init(); } catch (e) { fail(new Error('Local storage is unavailable in this browser mode.')); }
     if (!S.api.feeds.size) {
       S.api = null;
+      document.documentElement.dataset.backend = 'none';
       S.entries = []; S.byId.clear(); S.counts = new Map(); S.cats = []; S.subs = [];
       el.entries.innerHTML = `<div class="empty-state welcome">
         <div class="logo"><img src="icons/icon.svg" alt=""></div>
@@ -973,6 +1096,7 @@ async function start() {
     }
   }
   if (S.api.demo) { S.pending = {}; }
+  document.documentElement.dataset.backend = S.api.local ? 'local' : S.api.demo ? 'demo' : 'feedly';
 
   // instant paint from cache
   const meta = !S.api.demo && !S.api.local && LS.get('cache.meta', null);

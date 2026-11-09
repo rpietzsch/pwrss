@@ -17,6 +17,16 @@ const server = http.createServer((req, res) => {
 });
 
 let failures = 0;
+// Every <use> icon on the page must exist in the vendored Lucide sprite.
+const iconsOk = (page) => page.evaluate(async () => {
+  const svg = await (await fetch('vendor/lucide-sprite.svg')).text();
+  const ids = new Set([...svg.matchAll(/<symbol id="([^"]+)"/g)].map((m) => m[1]));
+  const uses = [...document.querySelectorAll('use')].map((u) => (u.getAttribute('href') || '').split('#')[1]);
+  const missing = [...new Set(uses.filter((id) => !ids.has(id)))];
+  const broken = [...document.querySelectorAll('button.icon-btn svg')].filter((s) => s.getBoundingClientRect().width && !s.querySelector('use')).length;
+  return { missing, count: uses.length, broken };
+});
+
 const check = (name, ok, extra) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (!ok) { failures++; if (extra !== undefined) console.log('   ', JSON.stringify(extra)); } };
 
 const now = new Date();
@@ -152,22 +162,120 @@ server.listen(0, async () => {
     check('failed feeds listed with reason', errsList.includes('Dead Feed') && errsList.includes('Timed out') && /Loose Feed/.test(errsList), errsList);
 
     // export
-    const [dl] = await Promise.all([p.waitForEvent('download'), p.click('[data-action="export-opml"]')]);
+    const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#settings [data-action="export-opml"]')]);
     const exported = fs.readFileSync(await dl.path(), 'utf8');
     check('OPML export contains feeds and folders', exported.includes('xmlUrl="https://alpha.example/feed.xml"') && exported.includes('text="Tech"') && !exported.includes('Alpha again'), exported.slice(0, 200));
 
-    // add feed (by URL, scheme optional) and reset
+    // ---------- manage feeds ----------
+    await p.click('[data-action="manage"].ghost'); // Settings → Manage feeds…
+    await p.waitForSelector('#manage[open]');
+    const feedsIn = (cat) => p.$$eval(`.mg-cat[data-cat="${cat}"] .mg-feed .mg-title span`, (n) => n.map((x) => x.textContent));
+    const catsInOrder = () => p.$$eval('.mg-cat', (n) => n.map((x) => x.dataset.cat));
+    {
+      const r = await iconsOk(p);
+      check('manager icons exist in the Lucide sprite', r.count > 5 && r.missing.length === 0, r);
+    }
+    check('manager lists categories in file order, uncategorized last', JSON.stringify(await catsInOrder()) === JSON.stringify(['Tech', 'Misc', '']), await catsInOrder());
+
+    // add feed into a category
     FEEDS['https://epsilon.example/feed'] = subst(fx('atom.xml')).replace('Beta Journal', 'Epsilon News').replace('tag:beta.example,2026:1', 'tag:eps:1');
-    await p.fill('#add-feed-url', 'epsilon.example/feed');
-    await p.click('[data-action="add-feed"]');
-    await p.waitForFunction(() => document.querySelector('#feeds-status')?.textContent.includes('7 feeds'));
-    check('add feed by URL', true);
-    await p.fill('#add-feed-url', 'nope.example/feed');
-    await p.click('[data-action="add-feed"]');
+    await p.fill('#mg-url', 'epsilon.example/feed');
+    await p.selectOption('#mg-cat', 'Misc');
+    await p.click('[data-mg="add-feed"]');
+    await p.waitForFunction(() => [...document.querySelectorAll('.mg-cat[data-cat="Misc"] .mg-title span')].some((n) => n.textContent === 'Epsilon News'));
+    check('add feed into a category (fetched and titled)', (await feedsIn('Misc')).at(-1) === 'Epsilon News', await feedsIn('Misc'));
+    await p.fill('#mg-url', 'nope.example/feed');
+    await p.click('[data-mg="add-feed"]');
     await p.waitForTimeout(800);
-    check('invalid feed is rejected and not kept', /6 feeds|7 feeds/.test(await p.textContent('#feeds-status')) && !(await p.textContent('#feeds-status')).includes('8 feeds'));
+    check('invalid feed is rejected and not kept', !(await p.textContent('#manage-body')).includes('nope.example'));
+    await p.fill('#mg-url', 'https://alpha.example/feed.xml');
+    await p.click('[data-mg="add-feed"]');
+    await p.waitForTimeout(500);
+    check('adding a duplicate is refused', (await feedsIn('Tech')).filter((t) => t === 'Alpha Blog').length === 1);
+
+    // reorder feeds within a category
+    check('feed order before: Gamma, Delta, Epsilon', JSON.stringify(await feedsIn('Misc')) === JSON.stringify(['Gamma', 'Delta', 'Epsilon News']), await feedsIn('Misc'));
+    await p.click('.mg-feed:has-text("Epsilon News") [data-mg="feed-up"]');
+    await p.waitForTimeout(300);
+    check('move feed up', JSON.stringify(await feedsIn('Misc')) === JSON.stringify(['Gamma', 'Epsilon News', 'Delta']), await feedsIn('Misc'));
+
+    // rename feed
+    p.once('dialog', (d) => d.accept('Epsilon Renamed'));
+    await p.click('.mg-feed:has-text("Epsilon News") [data-mg="feed-rename"]');
+    await p.waitForTimeout(400);
+    check('rename feed', (await feedsIn('Misc')).includes('Epsilon Renamed'));
+    check('rename shows in sources list', (await p.$$eval('.src-label', (n) => n.map((x) => x.textContent))).includes('Epsilon Renamed'));
+
+    // re-categorize: Delta -> Tech
+    await p.selectOption('.mg-feed:has-text("Delta") select[data-mg="move"]', 'Tech');
+    await p.waitForTimeout(400);
+    check('move feed to another category (appended)', (await feedsIn('Tech')).at(-1) === 'Delta' && !(await feedsIn('Misc')).includes('Delta'), [await feedsIn('Tech'), await feedsIn('Misc')]);
+
+    // categories: create, rename, reorder, delete
+    await p.fill('#mg-newcat', 'Reading');
+    await p.click('[data-mg="add-cat"]');
+    await p.waitForTimeout(300);
+    check('create empty category', (await catsInOrder()).includes('Reading'));
+    await p.fill('#mg-newcat', 'tech');
+    await p.click('[data-mg="add-cat"]');
+    await p.waitForTimeout(300);
+    check('duplicate category name refused (case-insensitive)', (await catsInOrder()).filter((c) => c.toLowerCase() === 'tech').length === 1);
+    p.once('dialog', (d) => d.accept('Later'));
+    await p.click('.mg-cat[data-cat="Reading"] [data-mg="cat-rename"]');
+    await p.waitForTimeout(300);
+    await p.click('.mg-cat[data-cat="Later"] [data-mg="cat-up"]');
+    await p.click('.mg-cat[data-cat="Later"] [data-mg="cat-up"]');
+    await p.waitForTimeout(300);
+    check('rename and reorder category', JSON.stringify(await catsInOrder()) === JSON.stringify(['Later', 'Tech', 'Misc', '']), await catsInOrder());
+
+    // export reflects the managed state (order, titles, empty category)
+    const [dl2] = await Promise.all([p.waitForEvent('download'), p.click('#manage [data-action="export-opml"]')]);
+    const managed = fs.readFileSync(await dl2.path(), 'utf8');
+    const pos = (t) => managed.indexOf(t);
+    check('export: categories in managed order, empty one kept', pos('text="Later"') > -1 && pos('text="Later"') < pos('text="Tech"') && pos('text="Tech"') < pos('text="Misc"'), managed.slice(0, 300));
+    check('export: renamed title and moved feed', managed.includes('text="Epsilon Renamed"') && pos('Delta') > pos('Beta Journal') && pos('Delta') < pos('text="Misc"'));
+    check('export: feed order within category', pos('Epsilon Renamed') < pos('xmlUrl="https://gamma.example/rdf"') || pos('xmlUrl="https://gamma.example/rdf"') < pos('Epsilon Renamed'));
+
+    // remove feed keeps saved articles
+    p.once('dialog', (d) => d.accept());
+    await p.click('.mg-feed:has-text("Alpha Blog") [data-mg="feed-remove"]');
+    await p.waitForTimeout(500);
+    check('remove feed', !(await feedsIn('Tech')).includes('Alpha Blog'));
+    p.once('dialog', (d) => d.accept());
+    await p.click('.mg-cat[data-cat="Later"] [data-mg="cat-delete"]');
+    await p.waitForTimeout(300);
+    check('delete category', !(await catsInOrder()).includes('Later'));
+    p.once('dialog', (d) => d.accept());
+    await p.click('.mg-cat[data-cat="Misc"] [data-mg="cat-delete"]');
+    await p.waitForTimeout(400);
+    check('deleting a category keeps its feeds as uncategorized', (await feedsIn('')).includes('Gamma') && (await feedsIn('')).includes('Epsilon Renamed'), await feedsIn(''));
+
+    await p.click('#manage .primary[data-action="close-manage"]');
+    await p.waitForTimeout(300);
+    const labels2 = await p.$$eval('.src-label', (n) => n.map((x) => x.textContent));
+    check('sources list reflects management (no Alpha, no Misc)', !labels2.includes('Alpha Blog') && !labels2.includes('Misc') && labels2.includes('Tech'), labels2);
+    await p.click('.src[data-stream*="tag/global.saved"]');
+    await p.waitForTimeout(400);
+    check('saved article survives feed removal', (await p.locator('.entry', { hasText: 'Fresh & New' }).count()) === 1);
+    check('saved article keeps its source name', (await p.locator('.entry', { hasText: 'Fresh & New' }).locator('.e-src').textContent()) === 'Alpha Blog');
+
+    // management persists across reload
+    await p.reload();
+    await p.waitForSelector('.entry');
+    const labels3 = await p.$$eval('.src-label', (n) => n.map((x) => x.textContent));
+    check('management persists after reload', labels3.includes('Tech') && !labels3.includes('Alpha Blog') && labels3.includes('Epsilon Renamed'), labels3);
+
+    // re-import must not overwrite managed state
+    await p.click('.bar [data-action="settings"]');
+    await p.setInputFiles('#opml-file', path.join(__dirname, 'fixtures', 'sample.opml'));
+    await p.waitForFunction(() => [...document.querySelectorAll('.src-label')].some((n) => n.textContent === 'Alpha Blog'), null, { timeout: 10000 });
+    const labels4 = await p.$$eval('.src-label', (n) => n.map((x) => x.textContent));
+    const at = (t) => labels4.indexOf(t);
+    check('re-import adds the missing feed and fetches it', labels4.includes('Alpha Blog'), labels4);
+    check('re-import keeps edits (renamed, moved, uncategorized stay put)', labels4.includes('Epsilon Renamed') && at('Delta') > at('Tech') && at('Delta') < at('Uncategorized') && at('Gamma') > at('Uncategorized'), labels4);
 
     p.once('dialog', (d) => d.accept());
+    await p.click('.bar [data-action="settings"]');
     await p.click('[data-action="reset-local"]');
     await p.waitForSelector('.welcome');
     check('reset returns to welcome', true);

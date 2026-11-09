@@ -44,6 +44,7 @@ export class LocalFeeds {
     this.userId = UID;
     this.proxy = (proxy || '').trim().replace(/\/+$/, '');
     this.proxyKey = proxyKey || '';
+    this.catOrder = [];       // category labels in display order
     this.feeds = new Map();   // id -> feed record
     this.entries = new Map(); // id -> entry
     this.failed = [];
@@ -55,13 +56,40 @@ export class LocalFeeds {
 
   init() {
     this._init ??= (async () => {
-      const [feeds, entries] = await Promise.all([store.getAll('feeds'), store.getAll('entries')]);
+      const [feeds, entries, meta] = await Promise.all([store.getAll('feeds'), store.getAll('entries'), store.getAll('meta')]);
       for (const f of feeds) this.feeds.set(f.id, f);
       for (const e of entries) this.entries.set(e.id, e);
+      this.catOrder = meta.find((m) => m.id === 'categories')?.labels || [];
       this.failed = feeds.filter((f) => f.error).map((f) => ({ title: f.title || f.url, error: f.error }));
+      await this.normalize();
     })();
     return this._init;
   }
+
+  // Make sure every category is listed and every feed has an order (older data may lack both).
+  async normalize() {
+    const known = new Set(this.catOrder);
+    const extra = [...new Set([...this.feeds.values()].map((f) => f.category).filter((c) => c && !known.has(c)))].sort((a, b) => a.localeCompare(b));
+    const changedFeeds = [];
+    if (extra.length) { this.catOrder.push(...extra); await this.saveMeta(); }
+    for (const cat of [null, ...this.catOrder]) {
+      const list = this.list(cat);
+      list.forEach((f, i) => { if (f.order !== i) { f.order = i; changedFeeds.push(f); } });
+    }
+    await store.put('feeds', changedFeeds);
+  }
+
+  saveMeta() { return store.put('meta', [{ id: 'categories', labels: this.catOrder }]); }
+
+  // Feeds of one category (null = uncategorized) in display order.
+  list(cat) {
+    const c = cat || null;
+    return [...this.feeds.values()]
+      .filter((f) => (f.category || null) === c)
+      .sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9) || (a.title || a.url).localeCompare(b.title || b.url));
+  }
+  orderedFeeds() { return [...this.catOrder.flatMap((c) => this.list(c)), ...this.list(null)]; }
+  nextOrder(cat) { const l = this.list(cat); return l.length ? Math.max(...l.map((f) => f.order ?? 0)) + 1 : 0; }
 
   lastRefresh() { try { return Number(localStorage.getItem(LAST_KEY)) || 0; } catch { return 0; } }
   stats() { return { feeds: this.feeds.size, failed: this.failed, lastRefresh: this.lastRefresh() }; }
@@ -71,13 +99,12 @@ export class LocalFeeds {
 
   async categories() {
     await this.init();
-    const labels = [...new Set([...this.feeds.values()].map((f) => f.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    return labels.map((label) => ({ id: this.catId(label), label }));
+    return this.catOrder.map((label) => ({ id: this.catId(label), label }));
   }
 
   async subscriptions() {
     await this.init();
-    return [...this.feeds.values()].map((f) => ({
+    return this.orderedFeeds().map((f) => ({
       id: f.id, title: f.title || f.url, website: f.website || '',
       categories: f.category ? [{ id: this.catId(f.category), label: f.category }] : [],
     }));
@@ -108,7 +135,7 @@ export class LocalFeeds {
 
   serve(e) {
     const f = this.feeds.get(e.feedId);
-    return { ...e, origin: { streamId: e.feedId, title: f?.title || '', htmlUrl: f?.website || '' } };
+    return { ...e, origin: { streamId: e.feedId, title: f?.title || e.feedTitle || '', htmlUrl: f?.website || '' } };
   }
 
   async stream(streamId, { count = 40, unreadOnly = false, continuation, ranked = 'newest', newerThan } = {}) {
@@ -156,42 +183,40 @@ export class LocalFeeds {
   async importOPML(xml) {
     await this.init();
     const items = parseOPML(xml);
-    let added = 0, updated = 0;
+    for (const label of [...items.folders, ...items.map((i) => i.category).filter(Boolean)]) {
+      if (label && !this.catOrder.includes(label)) this.catOrder.push(label);
+    }
+    let added = 0, existing = 0;
     const touched = [];
     for (const it of items) {
       const id = 'feed/' + it.url;
-      const cur = this.feeds.get(id);
-      if (cur) {
-        cur.title = it.title || cur.title;
-        cur.category = it.category;
-        cur.website = it.website || cur.website;
-        updated++;
-        touched.push(cur);
-      } else {
-        const f = { id, url: it.url, title: it.title, website: it.website, category: it.category, etag: null, modified: null, lastFetched: null, error: null };
-        this.feeds.set(id, f);
-        touched.push(f);
-        added++;
-      }
+      if (this.feeds.has(id)) { existing++; continue; } // never overwrite edits made in the app
+      const f = { id, url: it.url, title: it.title, website: it.website, category: it.category, order: this.nextOrder(it.category), etag: null, modified: null, lastFetched: null, error: null };
+      this.feeds.set(id, f);
+      touched.push(f);
+      added++;
     }
+    await this.saveMeta();
     await store.put('feeds', touched);
-    return { added, updated, total: items.length };
+    return { added, existing, total: items.length };
   }
 
   async exportOPML() {
     await this.init();
-    return buildOPML([...this.feeds.values()].map((f) => ({ url: f.url, title: f.title, website: f.website, category: f.category })));
+    return buildOPML(this.orderedFeeds().map((f) => ({ url: f.url, title: f.title, website: f.website, category: f.category })), this.catOrder);
   }
 
-  async addFeed(input) {
+  async addFeed(input, category = null) {
     await this.init();
     const url = normalizeUrl(input);
     if (!url) throw new ApiError('That doesn’t look like a web address.', 0);
+    if (category && !this.catOrder.includes(category)) throw new ApiError('Unknown category.', 0);
     const id = 'feed/' + url;
     if (this.feeds.has(id)) throw new ApiError('You already follow this feed.', 0);
-    const f = { id, url, title: '', website: '', category: null, etag: null, modified: null, lastFetched: null, error: null };
+    const f = { id, url, title: '', website: '', category: category || null, order: this.nextOrder(category), etag: null, modified: null, lastFetched: null, error: null };
     this.feeds.set(id, f);
-    const r = await this.refreshAll({ ids: [id] });
+    let r;
+    try { r = await this.refreshAll({ ids: [id] }); } catch (e) { this.feeds.delete(id); throw e; }
     if (f.error) {
       this.feeds.delete(id);
       await store.del('feeds', [id]);
@@ -200,10 +225,106 @@ export class LocalFeeds {
     return { feed: f, added: r.added };
   }
 
+  async removeFeed(id) {
+    await this.init();
+    const f = this.feeds.get(id);
+    if (!f) return;
+    this.feeds.delete(id);
+    const cat = f.category;
+    const drop = [...this.entries.values()].filter((e) => e.feedId === id && !e.tags.length);
+    for (const e of drop) this.entries.delete(e.id);
+    await store.del('entries', drop.map((e) => e.id));
+    await store.del('feeds', [id]);
+    await this.renumber(cat);
+    this.failed = this.failed.filter((x) => x.title !== (f.title || f.url));
+  }
+
+  async renameFeed(id, title) {
+    await this.init();
+    const f = this.feeds.get(id);
+    title = (title || '').trim();
+    if (!f || !title) return;
+    f.title = title;
+    for (const e of this.entries.values()) if (e.feedId === id) e.feedTitle = title;
+    await store.put('feeds', [f]);
+    await store.put('entries', [...this.entries.values()].filter((e) => e.feedId === id));
+  }
+
+  async renumber(cat) {
+    const list = this.list(cat);
+    list.forEach((f, i) => { f.order = i; });
+    await store.put('feeds', list);
+  }
+
+  async moveFeed(id, category) {
+    await this.init();
+    const f = this.feeds.get(id);
+    category = category || null;
+    if (!f || (f.category || null) === category) return;
+    if (category && !this.catOrder.includes(category)) throw new ApiError('Unknown category.', 0);
+    const old = f.category;
+    const order = this.nextOrder(category); // end of the target category
+    f.category = category;
+    f.order = order;
+    await this.renumber(category);
+    await this.renumber(old);
+  }
+
+  /** dir = -1 (up) or +1 (down) within the feed's category. */
+  async reorderFeed(id, dir) {
+    await this.init();
+    const f = this.feeds.get(id);
+    if (!f) return;
+    const list = this.list(f.category);
+    const i = list.indexOf(f), j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    list.forEach((x, k) => { x.order = k; });
+    await store.put('feeds', list);
+  }
+
+  async addCategory(label) {
+    await this.init();
+    label = (label || '').trim();
+    if (!label) throw new ApiError('Enter a category name.', 0);
+    if (this.catOrder.some((c) => c.toLowerCase() === label.toLowerCase())) throw new ApiError('That category already exists.', 0);
+    this.catOrder.push(label);
+    await this.saveMeta();
+  }
+
+  async renameCategory(old, label) {
+    await this.init();
+    label = (label || '').trim();
+    if (!label || label === old) return;
+    if (this.catOrder.some((c) => c !== old && c.toLowerCase() === label.toLowerCase())) throw new ApiError('That category already exists.', 0);
+    this.catOrder = this.catOrder.map((c) => (c === old ? label : c));
+    const changed = [];
+    for (const f of this.feeds.values()) if (f.category === old) { f.category = label; changed.push(f); }
+    await this.saveMeta();
+    await store.put('feeds', changed);
+  }
+
+  async deleteCategory(label) {
+    await this.init();
+    this.catOrder = this.catOrder.filter((c) => c !== label);
+    const moved = this.list(label);
+    for (const f of moved) { f.order = this.nextOrder(null); f.category = null; }
+    await store.put('feeds', moved);
+    await this.saveMeta();
+  }
+
+  async reorderCategory(label, dir) {
+    await this.init();
+    const i = this.catOrder.indexOf(label), j = i + dir;
+    if (i < 0 || j < 0 || j >= this.catOrder.length) return;
+    [this.catOrder[i], this.catOrder[j]] = [this.catOrder[j], this.catOrder[i]];
+    await this.saveMeta();
+  }
+
   async reset() {
     await this.init();
-    await store.clear('feeds', 'entries');
-    this.feeds.clear(); this.entries.clear(); this.failed = [];
+    await store.clear('feeds', 'entries', 'meta');
+    this.feeds.clear(); this.entries.clear(); this.failed = []; this.catOrder = [];
     try { localStorage.removeItem(LAST_KEY); } catch {}
   }
 
@@ -305,6 +426,7 @@ export class LocalFeeds {
         summary: { content: it.summary || '' },
         content: it.html ? { content: it.html } : undefined,
         visual: it.image ? { url: abs(it.image, base) } : undefined,
+        feedTitle: f.title,
       };
       if (cur) {
         Object.assign(cur, fields);

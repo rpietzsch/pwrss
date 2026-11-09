@@ -86,7 +86,7 @@ task build          # build the deployable site into _site/
 task preview        # build and serve _site/
 task clean          # remove build output
 task icons          # regenerate PNG icons from icons/icon.svg
-task vendor         # update vendored Readability / DOMPurify
+task vendor         # update vendored Readability / DOMPurify / Lucide icons
 task worker:deploy  # deploy the Cloudflare proxy (or connect the repo in Cloudflare)
 ```
 
@@ -114,7 +114,7 @@ tests/worker.cjs    unit tests for the proxy worker
 tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)
 worker/             Cloudflare Worker proxy
-vendor/             Readability 0.6.0 (Apache-2.0), DOMPurify 3.4 (Apache-2.0/MPL-2.0)
+vendor/             Readability (Apache-2.0), DOMPurify (Apache-2.0/MPL-2.0), Lucide icon sprite (ISC)
 ```
 
 ## Deployment

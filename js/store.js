@@ -4,10 +4,11 @@ let dbp;
 
 export function db() {
   dbp ??= new Promise((resolve, reject) => {
-    const r = indexedDB.open(NAME, 1);
+    const r = indexedDB.open(NAME, 2);
     r.onupgradeneeded = () => {
-      r.result.createObjectStore('feeds', { keyPath: 'id' });
-      r.result.createObjectStore('entries', { keyPath: 'id' });
+      for (const n of ['feeds', 'entries', 'meta']) {
+        if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n, { keyPath: 'id' });
+      }
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => { dbp = null; reject(r.error); };
