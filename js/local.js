@@ -49,6 +49,8 @@ export class LocalFeeds {
     this.feeds = new Map();   // id -> feed record
     this.entries = new Map(); // id -> entry
     this.failed = [];
+    this.syncOn = false;      // set by the app from Settings
+    this.sync = { seq: 0, docRev: 0, docAt: 0, syncedDocAt: 0, dirty: {}, remote: {}, seeded: false, lastSync: 0 };
   }
 
   allId() { return `user/${UID}/category/global.all`; }
@@ -61,6 +63,8 @@ export class LocalFeeds {
       for (const f of feeds) this.feeds.set(f.id, f);
       for (const e of entries) this.entries.set(e.id, e);
       this.catOrder = meta.find((m) => m.id === 'categories')?.labels || [];
+      const sy = meta.find((m) => m.id === 'sync');
+      if (sy) this.sync = { ...this.sync, ...sy.state };
       this.failed = feeds.filter((f) => f.error).map((f) => this.failure(f));
       await this.normalize();
     })();
@@ -169,17 +173,20 @@ export class LocalFeeds {
       else if (action === 'markAsUnsaved') e.tags = [];
       else continue;
       changed.push(e);
+      this.recordDirty(e, action);
     }
     await store.put('entries', changed);
+    if (this.syncOn && changed.length) await this.saveSync();
   }
 
   async markStreamRead(streamId, asOf) {
     await this.init();
     const changed = [];
     for (const e of this.entries.values()) {
-      if (e.unread && this.matches(streamId, e) && (e.crawled || e.published) <= asOf) { e.unread = false; changed.push(e); }
+      if (e.unread && this.matches(streamId, e) && (e.crawled || e.published) <= asOf) { e.unread = false; changed.push(e); this.recordDirty(e, 'markAsRead'); }
     }
     await store.put('entries', changed);
+    if (this.syncOn && changed.length) await this.saveSync();
   }
 
   fetchPage(url) { return proxyFetchPage(this.proxy, this.proxyKey, url); }
@@ -203,6 +210,7 @@ export class LocalFeeds {
     }
     await this.saveMeta();
     await store.put('feeds', touched);
+    if (added) await this.touchDoc();
     return { added, existing, total: items.length };
   }
 
@@ -227,13 +235,14 @@ export class LocalFeeds {
       await store.del('feeds', [id]);
       throw new ApiError(`Couldn’t add feed: ${f.error}`, 0);
     }
+    await this.touchDoc();
     return { feed: f, added: r.added };
   }
 
   removeFeed(id) { return this.removeFeeds([id]); }
 
   /** Remove feeds and their unsaved articles (saved ones stay, keeping their feed name). */
-  async removeFeeds(ids) {
+  async removeFeeds(ids, { silent = false } = {}) {
     await this.init();
     const gone = new Set();
     const cats = new Set();
@@ -251,6 +260,7 @@ export class LocalFeeds {
     await store.del('feeds', [...gone]);
     for (const c of cats) await this.renumber(c);
     this.failed = this.failed.filter((x) => !gone.has(x.id));
+    if (!silent) await this.touchDoc();
     return gone.size;
   }
 
@@ -271,6 +281,7 @@ export class LocalFeeds {
     f.url = url;
     f.etag = null; f.modified = null; f.error = null; f.errorDetail = null;
     await store.put('feeds', [f]);
+    await this.touchDoc();
     const r = await this.refreshAll({ ids: [id] });
     return { ok: !f.error, error: f.error, added: r.added, feed: f };
   }
@@ -284,6 +295,7 @@ export class LocalFeeds {
     for (const e of this.entries.values()) if (e.feedId === id) e.feedTitle = title;
     await store.put('feeds', [f]);
     await store.put('entries', [...this.entries.values()].filter((e) => e.feedId === id));
+    await this.touchDoc();
   }
 
   async renumber(cat) {
@@ -304,6 +316,7 @@ export class LocalFeeds {
     f.order = order;
     await this.renumber(category);
     await this.renumber(old);
+    await this.touchDoc();
   }
 
   /** dir = -1 (up) or +1 (down) within the feed's category. */
@@ -317,6 +330,7 @@ export class LocalFeeds {
     [list[i], list[j]] = [list[j], list[i]];
     list.forEach((x, k) => { x.order = k; });
     await store.put('feeds', list);
+    await this.touchDoc();
   }
 
   async addCategory(label) {
@@ -326,6 +340,7 @@ export class LocalFeeds {
     if (this.catOrder.some((c) => c.toLowerCase() === label.toLowerCase())) throw new ApiError('That category already exists.', 0);
     this.catOrder.push(label);
     await this.saveMeta();
+    await this.touchDoc();
   }
 
   async renameCategory(old, label) {
@@ -338,6 +353,7 @@ export class LocalFeeds {
     for (const f of this.feeds.values()) if (f.category === old) { f.category = label; changed.push(f); }
     await this.saveMeta();
     await store.put('feeds', changed);
+    await this.touchDoc();
   }
 
   async deleteCategory(label) {
@@ -347,6 +363,7 @@ export class LocalFeeds {
     for (const f of moved) { f.order = this.nextOrder(null); f.category = null; }
     await store.put('feeds', moved);
     await this.saveMeta();
+    await this.touchDoc();
   }
 
   async reorderCategory(label, dir) {
@@ -355,13 +372,139 @@ export class LocalFeeds {
     if (i < 0 || j < 0 || j >= this.catOrder.length) return;
     [this.catOrder[i], this.catOrder[j]] = [this.catOrder[j], this.catOrder[i]];
     await this.saveMeta();
+    await this.touchDoc();
   }
 
   async reset() {
     await this.init();
     await store.clear('feeds', 'entries', 'meta');
     this.feeds.clear(); this.entries.clear(); this.failed = []; this.catOrder = [];
+    this.sync = { seq: 0, docRev: 0, docAt: 0, syncedDocAt: 0, dirty: {}, remote: {}, seeded: false, lastSync: 0 };
     try { localStorage.removeItem(LAST_KEY); } catch {}
+  }
+
+  // ----- sync (see js/sync.js and tasks/specs.md#sync-across-devices) -----
+  saveSync() { return store.put('meta', [{ id: 'sync', state: this.sync }]); }
+
+  /** The feed list changed on this device: it becomes the newest version. */
+  touchDoc() {
+    this.sync.docAt = Date.now();
+    return this.saveSync();
+  }
+
+  savedPayload(e) {
+    const cut = (t, n) => (t && t.length > n ? t.slice(0, n) : t);
+    return {
+      id: e.id, feedId: e.feedId, feedTitle: e.feedTitle || this.feeds.get(e.feedId)?.title || '', title: e.title, author: e.author,
+      published: e.published, alternate: e.alternate, canonicalUrl: e.canonicalUrl,
+      summary: { content: cut(e.summary?.content || e.content?.content || '', 4000) }, visual: e.visual,
+    };
+  }
+
+  recordDirty(e, action) {
+    if (!this.syncOn) return;
+    const d = (this.sync.dirty[e.id] ||= {});
+    const t = Date.now();
+    if (action === 'markAsRead' || action === 'keepUnread') { d.read = action === 'markAsRead'; d.readAt = t; }
+    else { d.saved = action === 'markAsSaved'; d.savedAt = t; if (d.saved) d.entry = this.savedPayload(e); else delete d.entry; }
+  }
+
+  /** First sync: upload what this device already knows (feed list, saved, recently read). */
+  seedSync() {
+    const s = this.sync;
+    if (s.seeded) return;
+    const recent = Date.now() - 30 * 24 * 3600 * 1000;
+    for (const e of this.entries.values()) {
+      const saved = e.tags.length > 0;
+      const read = !e.unread && (e.published || e.crawled || 0) > recent;
+      if (!saved && !read) continue;
+      const d = (s.dirty[e.id] ||= {});
+      if (read) { d.read = true; d.readAt ??= e.crawled || 1; }
+      if (saved) { d.saved = true; d.savedAt ??= Date.now(); d.entry = this.savedPayload(e); }
+    }
+    if (!s.docAt && this.feeds.size) s.docAt = Date.now();
+    s.seeded = true;
+  }
+
+  getDoc() {
+    return {
+      categories: [...this.catOrder],
+      feeds: this.orderedFeeds().map((f) => ({ id: f.id, url: f.url, title: f.title, website: f.website, category: f.category, order: f.order })),
+    };
+  }
+
+  /** The next batch of local changes to send. */
+  syncSnapshot(max = 2000) {
+    const s = this.sync;
+    const ids = Object.keys(s.dirty).slice(0, max);
+    return {
+      flags: ids.map((id) => ({ id, ...s.dirty[id] })),
+      doc: s.docAt > s.syncedDocAt && this.feeds.size ? this.getDoc() : null,
+      docAt: s.docAt,
+      remaining: Object.keys(s.dirty).length - ids.length,
+    };
+  }
+
+  /** The server has the snapshot: forget it, except flags changed again in the meantime. */
+  commitSync(snap) {
+    for (const f of snap.flags) {
+      const cur = this.sync.dirty[f.id];
+      if (cur && cur.readAt === f.readAt && cur.savedAt === f.savedAt) delete this.sync.dirty[f.id];
+    }
+  }
+
+  /** Apply read/saved state from the server. Returns the ids of articles that changed on screen. */
+  async applyRemoteFlags(list) {
+    const changedIds = new Set();
+    const touched = [];
+    for (const f of list) {
+      if (this.sync.dirty[f.id]) continue; // changed again here since the request started
+      const e = this.entries.get(f.id);
+      if (e) {
+        const unread = !f.read;
+        const saved = !!f.saved;
+        if (e.unread !== unread) { e.unread = unread; changedIds.add(f.id); touched.push(e); }
+        if ((e.tags.length > 0) !== saved) { e.tags = saved ? [{ id: this.savedId() }] : []; changedIds.add(f.id); touched.push(e); }
+      } else if (f.saved && f.entry) {
+        const p = f.entry;
+        const ne = { ...p, id: f.id, crawled: Date.now(), tags: [{ id: this.savedId() }], unread: !f.read };
+        this.entries.set(f.id, ne);
+        changedIds.add(f.id); touched.push(ne);
+      } else if (f.read) {
+        this.sync.remote[f.id] = { read: true, at: f.readAt };
+      } else {
+        delete this.sync.remote[f.id];
+      }
+    }
+    await store.put('entries', [...new Set(touched)]);
+    return changedIds;
+  }
+
+  /** Make this device's feed list match the server's. Returns { added, removed }. */
+  async applyDoc(doc) {
+    if (!doc || !Array.isArray(doc.feeds)) return { added: 0, removed: 0 };
+    if (!doc.feeds.length && this.feeds.size) return { added: 0, removed: 0 }; // an empty list never wipes a device
+    const remote = new Map(doc.feeds.map((f) => [f.id, f]));
+    const gone = [...this.feeds.keys()].filter((id) => !remote.has(id));
+    const removed = await this.removeFeeds(gone, { silent: true });
+    let added = 0;
+    const touched = [];
+    for (const rf of doc.feeds) {
+      let f = this.feeds.get(rf.id);
+      if (f) {
+        Object.assign(f, { url: rf.url, title: rf.title, website: rf.website, category: rf.category || null, order: rf.order });
+      } else {
+        f = { id: rf.id, url: rf.url, title: rf.title, website: rf.website, category: rf.category || null, order: rf.order, etag: null, modified: null, lastFetched: null, error: null };
+        this.feeds.set(f.id, f);
+        added++;
+      }
+      touched.push(f);
+    }
+    this.catOrder = [...(doc.categories || [])];
+    await this.saveMeta();
+    await store.put('feeds', touched);
+    await this.normalize();
+    return { added, removed };
   }
 
   // ----- refresh -----
@@ -377,7 +520,13 @@ export class LocalFeeds {
     } catch {
       throw new ApiError(navigator.onLine ? 'Could not reach the proxy. Check the proxy URL in Settings.' : 'You are offline', 0);
     }
-    if (res.status === 403) throw new ApiError('The proxy rejected this app (origin or proxy key). Check Settings.', 403);
+    if (res.status === 403) {
+      let code = '';
+      try { code = (await res.json()).error; } catch {}
+      throw new ApiError(code === 'sync_requires_proxy_key'
+        ? 'Sync needs a proxy key: set the PROXY_KEY secret on your Worker and enter the same key in Settings.'
+        : 'The proxy rejected this app (origin or proxy key). Check Settings.', 403);
+    }
     if (!res.ok) {
       let said = '';
       try { said = (await res.text()).replace(/\s+/g, ' ').trim().slice(0, 80); } catch {}
@@ -516,11 +665,13 @@ export class LocalFeeds {
         Object.assign(cur, fields);
         changedEntries.push(cur);
       } else {
+        const remote = this.sync.remote[id];
         const e = {
           id, feedId: f.id, crawled: now, tags: [],
-          unread: !(first && now - published > FIRST_FETCH_UNREAD_MS),
+          unread: !(first && now - published > FIRST_FETCH_UNREAD_MS) && !remote?.read,
           ...fields,
         };
+        if (remote) delete this.sync.remote[id];
         this.entries.set(id, e);
         changedEntries.push(e);
         if (e.unread) added++;

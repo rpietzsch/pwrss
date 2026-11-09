@@ -62,10 +62,28 @@ Settings. Pwrss fetches all feeds and keeps articles, read and saved state in th
 Things to know:
 
 - Some sites refuse requests from Cloudflare's network (Hacker News answers `419 Sorry`; W3C and Forbes show a "you have been blocked" page). Those feeds show up in the failed list with the reason. For **Hacker News**, tap *Use Hacker News API instead* on its entry: the browser then reads the public HN Search API directly, with no proxy involved.
-- There is no sync between devices; export OPML any time to back up or move your feed list.
+- Without sync, state stays on the device. Export OPML any time to back up or move your feed list.
 - Feeds only offer their latest items, so history starts when you first import.
 - Feeds refresh when you open the app (if it's been 15+ minutes), when you return to it, and when you pull down.
 - Feeds that fail to load are listed in Settings → Feeds with the reason; you can retry them, or remove them one by one or all at once. *Manage feeds* (list icon in the sources header) handles adding, renaming, re-categorizing and reordering.
+
+### Optional: sync across devices
+
+Pwrss can keep your **feed list** (feeds, folders, order, renamed titles) and **read/saved articles** in step on all
+your devices. It runs through the same Worker, which stores the data in a Durable Object (SQLite) in your own
+Cloudflare account. Nothing goes anywhere else, and there is nothing to create by hand: the binding and migration are
+declared in `worker/wrangler.toml`, so deploying the Worker sets it up.
+
+1. Make sure the Worker has the **`PROXY_KEY`** secret (see above). Sync refuses to run without one.
+2. Let the Worker redeploy from the latest version (the Git-connected build does it on push). If the build fails, open
+   its log in Cloudflare: Durable Objects with SQLite must be available on your plan (they are on the free plan).
+3. On each device: Settings → **Sync** → switch it on → Save. On a new device, enter the proxy URL and key first; the
+   feed list arrives automatically and the feeds are fetched.
+
+How it behaves: changes are queued and sent a few seconds later (and when you open the app or tap *Sync now*); it works
+offline; the **latest change wins** per article, and the feed list as a whole. Article text isn't synced; every device
+downloads its own feeds. The first sync uploads your feed list, saved articles and the last 30 days of read articles.
+The cloud keeps read states for 90 days and saved articles for as long as they are saved.
 
 ### Optional: Feedly account as the source
 
@@ -82,7 +100,7 @@ Plain HTML/CSS/ES modules — no build step needed to develop. Tasks use [Task](
 
 ```sh
 task dev            # serve the source tree on http://localhost:8080 — click "Try the demo"
-task check          # syntax check, worker unit tests, Playwright end-to-end tests
+task check          # syntax check, worker unit tests, Playwright end-to-end tests (Node 22.5+ for node:sqlite)
 task build          # build the deployable site into _site/
 task preview        # build and serve _site/
 task clean          # remove build output
@@ -103,6 +121,7 @@ js/app.js           state, rendering, actions, keyboard
 js/local.js         local backend: OPML feeds, fetch, storage (IndexedDB)
 js/feedparse.js     RSS/Atom/RDF parser
 js/hnapi.js         Hacker News Search API source (fetched by the browser)
+js/sync.js          sync client (push/pull with the Worker)
 js/opml.js          OPML import/export
 js/store.js         IndexedDB wrapper
 js/api.js           Feedly API client (optional source)
@@ -112,10 +131,12 @@ js/demo.js          demo backend
 scripts/build.sh    build into _site/ (used by task build and CI)
 tests/smoke.cjs     end-to-end tests (demo mode, mocked OAuth)
 tests/local.cjs     parser, OPML and local-feeds flow tests (mocked proxy)
+tests/sync-store.cjs  sync server logic on real SQLite + Worker route rules
+tests/sync.cjs      two devices syncing through the real Worker code
 tests/worker.cjs    unit tests for the proxy worker
 tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)
-worker/             Cloudflare Worker proxy
+worker/             Cloudflare Worker: proxy (feeds, pages) and the sync Durable Object (sync-store.js)
 vendor/             Readability (Apache-2.0), DOMPurify (Apache-2.0/MPL-2.0), Lucide icon sprite (ISC)
 ```
 

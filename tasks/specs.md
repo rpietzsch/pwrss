@@ -35,6 +35,21 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - When a feed on one of those Hacker News hosts fails, its entry in the failed list offers **Use Hacker News API instead**. It switches that feed to the API front page (or the newest stories if the old address had `newest` in it), keeps its category and position, and fetches it at once.
 - Direct fetches get the same failure reporting as proxied ones.
 
+## Sync across devices
+
+- Sync is optional and off by default. It applies to the local-feeds source and runs through the user's own Worker, which stores the data in a Durable Object (SQLite) in the user's Cloudflare account. Nothing goes to any other service.
+- What syncs: the **feed list** (feeds, their addresses, titles, categories and order, including empty categories) and each article's **read** and **saved** state. Article text is not synced: each device downloads its own feeds. A saved article carries a small copy (title, link, author, time, source name, a trimmed summary and image) so other devices can show it.
+- Sync needs the Worker's `PROXY_KEY` to be set. Without it the Worker refuses to store or serve anything, and the app says so.
+- Settings → Sync has a switch, **Sync now**, and a status line (last sync time, number of changes waiting, last error). Turning the switch on and saving syncs immediately; on a device with no feeds yet, this brings in the feed list and starts the app.
+- Changes made on a device are queued with a timestamp and sent together. A sync runs: after turning sync on, shortly after local changes (a few seconds), when the app starts, when it returns to the foreground after more than a minute, and on **Sync now**. It works offline: changes wait in the queue until the next successful sync.
+- Conflicts: for read and for saved, the change with the latest timestamp wins, per article. The feed list is replaced as a whole by the most recent change. A device whose copy is older receives the newer list, even if it also changed something in between.
+- When the feed list from the cloud adds feeds, they are fetched at once. Feeds missing from the cloud copy are removed (their unsaved articles with them). An empty cloud list never removes feeds from a device that has some.
+- Articles unknown to a device get their synced read state when they first arrive, so an article read elsewhere appears read.
+- Turning sync on for the first time uploads the current feed list, the saved articles, and the read articles from the last 30 days. Older read states are not uploaded.
+- The cloud keeps read states for 90 days and saved articles for as long as they are saved. A device that stays offline longer than 90 days can miss older read states.
+- Deleting local data on one device does not delete the cloud copy; with sync on, the next sync restores the feed list and states from the cloud.
+- Article identity is the feed plus the item's GUID, so state is shared between devices only for feeds that have the same feed identity on both (importing the same OPML or syncing the feed list guarantees this).
+
 ## Managing feeds
 
 - **Manage feeds** opens from the sources header (local source only) and from Settings → Feeds. It lists categories in order, each with its feeds in order, and Uncategorized last.

@@ -3,6 +3,7 @@
 //   /v3/*          → https://api.feedly.com/v3/*   (adds CORS headers)
 //   /fetch?url=…   → fetches an article page for Reader mode
 //   POST /feeds    → fetches a batch of RSS/Atom feeds: { feeds: [{ url, etag, modified }] }
+//   POST /sync     → cross-device sync of read/saved state and the feed list (Durable Object `SYNC`)
 //   /auth/config   → { enabled, clientId } for "Sign in with Feedly"
 //   /auth/token    → exchanges an OAuth code for tokens (holds the client secret)
 //   /auth/refresh  → refreshes an access token
@@ -13,12 +14,16 @@
 //   PROXY_KEY        optional shared secret; clients must send X-Proxy-Key
 //   FEEDLY_CLIENT_ID / FEEDLY_CLIENT_SECRET   OAuth client issued by Feedly (store as secrets)
 
+import { SyncStore } from './sync-store.js';
+export { SyncStore }; // Durable Object class (bound as SYNC in wrangler.toml)
+
 const FEEDLY = 'https://api.feedly.com';
 const FEEDLY_AUTH = 'https://cloud.feedly.com/v3/auth/token';
 const MAX_PAGE_BYTES = 5 * 1024 * 1024;
 const MAX_FEED_BYTES = 2 * 1024 * 1024;
 const MAX_FEEDS_PER_REQUEST = 40;
 const FEED_TIMEOUT_MS = 8000;
+const MAX_SYNC_BYTES = 1_500_000;
 const FEED_CONCURRENCY = 6; // Workers allow 6 simultaneous outgoing connections per request
 const FEED_UA = 'Mozilla/5.0 (compatible; Pwrss/1.0; +https://github.com/rpietzsch/pwrss)';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Pwrss/1.0';
@@ -62,6 +67,20 @@ export default {
 
     try {
       if (url.pathname.startsWith('/auth/')) return await handleAuth(url, request, env, headers, allowed);
+
+      if (url.pathname === '/sync' && request.method === 'POST') {
+        // Personal data: never serve it without a proxy key.
+        if (!env.PROXY_KEY) return json({ error: 'sync_requires_proxy_key' }, 403, headers);
+        if (!env.SYNC) return json({ error: 'sync_not_configured' }, 501, headers);
+        const text = await request.text();
+        if (text.length > MAX_SYNC_BYTES) return json({ error: 'too_large' }, 413, headers);
+        const stub = env.SYNC.get(env.SYNC.idFromName('main'));
+        const res = await stub.fetch(new Request('https://sync.internal/', { method: 'POST', body: text, headers: { 'Content-Type': 'application/json' } }));
+        const h = new Headers(headers);
+        h.set('Content-Type', 'application/json');
+        h.set('Cache-Control', 'no-store');
+        return new Response(res.body, { status: res.status, headers: h });
+      }
 
       if (url.pathname === '/feeds' && request.method === 'POST') {
         let body;

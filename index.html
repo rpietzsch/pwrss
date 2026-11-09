@@ -142,6 +142,13 @@
           <p class="hint">Browsers can't fetch feeds or article pages from other sites directly (CORS), so Pwrss uses your own tiny Cloudflare Worker for feeds and Reader mode. See the <a href="https://github.com/rpietzsch/pwrss#proxy" target="_blank" rel="noopener">README</a>.</p>
         </section>
         <section>
+          <h3>Sync <small>(optional)</small></h3>
+          <label class="row"><span>Sync across devices</span><input type="checkbox" name="sync"></label>
+          <div class="btn-row"><button type="button" class="ghost" data-action="sync-now" id="sync-now-btn">Sync now</button></div>
+          <p class="hint" id="sync-status"></p>
+          <p class="hint">Keeps your feed list and read/saved articles in step on all your devices, through your own Worker (stored in your Cloudflare account, nowhere else). Needs the proxy key to be set. Article text isn't synced: each device downloads its own feeds. The latest change wins. On a new device, enter the proxy URL and key, switch this on and save.</p>
+        </section>
+        <section>
           <h3>Feedly account <small>(optional)</small></h3>
           <p class="hint">Only needed if you pick “Feedly account” as source. Feedly now restricts API access, so this may not be available for your account.</p>
           <div class="signin">

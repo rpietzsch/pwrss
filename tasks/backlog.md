@@ -6,6 +6,8 @@ See AGENTS.md for conventions.
 
 ## Next
 
+- [ ] Verify sync on the real Worker with two real devices (first deploy creates the Durable Object) (spec: #sync-across-devices)
+- [ ] Sync settings that are per-device on purpose? (theme, toolbar) — decide whether to sync appearance (spec: #sync-across-devices)
 - [ ] Confirm the earlier 'Proxy error 404' on retry doesn't come back (the error text now shows the endpoint and reply) (spec: #accounts-and-proxy)
 - [ ] Other feeds that block Cloudflare Worker addresses (w3.org, Forbes show a Cloudflare block page): offer another egress (e.g. Deno Deploy/Vercel proxy) or per-feed alternatives (spec: #local-feeds-default-source)
 - [ ] Diagnose why `https://hackernews.com/rss` (redirects to news.ycombinator.com/rss) fails on the deployed Worker: read the reason now shown in Settings after Retry failed (spec: #local-feeds-default-source)
@@ -20,7 +22,6 @@ See AGENTS.md for conventions.
 ## Later
 
 - [ ] Drag-and-drop reordering in Manage feeds (buttons only for now)
-- [ ] Optional sync of local state across devices via the Worker (Cloudflare KV / D1)
 - [ ] Feed discovery: paste a website URL and find its feed
 - [ ] Background refresh via periodic sync where supported
 - [ ] Prefetch Reader-mode content for the next article
@@ -29,6 +30,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-09 — Cross-device sync through the Worker (SQLite Durable Object): feed list and read/saved state, offline queue, latest change wins; two-device end-to-end test (spec: #sync-across-devices)
 - [x] 2026-11-09 — Hacker News via the public HN Search API fetched directly by the browser (HN refuses Cloudflare's addresses); one-tap switch in the failed list (spec: #hacker-news)
 - [x] 2026-11-09 — Proxy URL cleaned (trailing slash, pasted /health /feeds /fetch); proxy errors name the endpoint and what the proxy said, 404 explains likely causes (spec: #accounts-and-proxy)
 - [x] 2026-11-09 — Retry feedback: toasts drawn above dialogs (they were hidden behind Settings), progress on Retry failed, per-feed retry in the failed list and Manage feeds, failures name the answering server (spec: #messages)

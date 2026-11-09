@@ -6,8 +6,7 @@ let failures = 0;
 const check = (name, ok) => { console.log(`${ok ? '✓' : '✗'} ${name}`); if (!ok) failures++; };
 
 (async () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'worker', 'feedly-proxy.js'), 'utf8');
-  const { default: w } = await import('data:text/javascript;base64,' + Buffer.from(src).toString('base64'));
+  const { default: w } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'worker', 'feedly-proxy.js')).href);
 
   const calls = [];
   globalThis.fetch = async (url, init) => {

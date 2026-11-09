@@ -46,7 +46,9 @@ tasks:
     desc: Worker unit tests + end-to-end smoke test (Playwright/Chromium)
     cmds:
       - node tests/worker.cjs
+      - node tests/sync-store.cjs
       - node tests/local.cjs .
+      - node tests/sync.cjs .
       - node tests/smoke.cjs .
 
   test:dist:
@@ -54,6 +56,7 @@ tasks:
     deps: [build]
     cmds:
       - node tests/local.cjs {{.OUT}}
+      - node tests/sync.cjs {{.OUT}}
       - node tests/smoke.cjs {{.OUT}}
 
   check:

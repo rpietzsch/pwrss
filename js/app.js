@@ -3,6 +3,7 @@ import { DemoFeedly } from './demo.js';
 import { LocalFeeds } from './local.js';
 import { parseOPML } from './opml.js';
 import { isHNHost, hnApiReplacement } from './hnapi.js';
+import { SyncClient } from './sync.js';
 import { sanitize, readerView } from './reader.js';
 import { swipeRows, edgeBack, flick, pullToRefresh } from './gestures.js';
 
@@ -16,7 +17,7 @@ const LS = {
 const DEFAULTS = {
   token: '', proxy: '', proxyKey: '', demo: false, userId: null,
   markOnOpen: true, markOnScroll: false, readerDefault: false, thumbs: true,
-  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom', oauth: null, source: 'local',
+  sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom', oauth: null, source: 'local', sync: false,
 };
 
 const S = {
@@ -463,6 +464,7 @@ async function flush() {
       if (!Object.keys(cur).length) delete S.pending[id];
     }
     LS.set('pending', S.pending);
+    scheduleSync();
   } catch (e) {
     if (!(e instanceof ApiError && e.status === 0)) fail(e);
   } finally {
@@ -765,6 +767,72 @@ async function handleOAuthReturn() {
   } catch (e) { fail(e); }
 }
 
+// ---------- sync across devices ----------
+let syncing = false, syncTimer, syncError = '';
+
+const syncActive = () => S.settings.sync && S.settings.source !== 'feedly' && !S.settings.demo;
+
+function scheduleSync(ms = 3000) {
+  if (!syncActive() || !S.api?.local) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(), ms);
+}
+
+async function updateSyncStatus() {
+  const box = $('#sync-status');
+  if (!box) return;
+  let lf = null;
+  try { lf = await getLocal(); } catch {}
+  const st = lf?.sync;
+  const waiting = st ? Object.keys(st.dirty).length : 0;
+  if (!S.settings.sync) { box.textContent = 'Off.'; return; }
+  const when = st?.lastSync ? (ago(st.lastSync) === 'now' ? 'just now' : `${ago(st.lastSync)} ago`) : 'never';
+  box.textContent = syncError
+    ? `Last sync failed: ${syncError}`
+    : `Last synced ${when}${waiting ? ` · ${waiting} change${waiting === 1 ? '' : 's'} waiting` : ''}.`;
+}
+
+async function syncNow({ manual = false } = {}) {
+  if (!syncActive() || syncing) return;
+  syncing = true;
+  const btn = $('#sync-now-btn');
+  btn.disabled = true;
+  try {
+    const lf = await getLocal();
+    lf.syncOn = true;
+    lf.syncClient ??= new SyncClient(lf);
+    if (manual) toast('Syncing…', 60000);
+    const r = await lf.syncClient.run();
+    syncError = '';
+    if (!S.api?.local && lf.feeds.size) {
+      await useLocalAndRestart(); // a new device: show the feeds that just arrived
+      if (manual) toast(`Synced — ${lf.feeds.size} feeds from your other device`, 3500);
+      return;
+    }
+    if (S.api?.local) {
+      if (r.docChanged) {
+        await syncAfterChange();
+        if (r.newFeeds) refresh({ quiet: true }); // fetch the feeds that just arrived
+      } else if (r.changed.size) {
+        for (const id of r.changed) {
+          const e = S.byId.get(id);
+          const cur = S.api.entries.get(id);
+          if (e && cur) { e.unread = cur.unread; e.tags = cur.tags; refreshRow(e); }
+        }
+        await loadCounts();
+      }
+    }
+    if (manual) toast(r.sent || r.changed.size || r.docChanged ? `Synced — ${r.sent} sent, ${r.changed.size} updated${r.docChanged ? ', feed list updated' : ''}` : 'Already in sync', 3000);
+  } catch (e) {
+    syncError = e.message || String(e);
+    if (manual) fail(e);
+  } finally {
+    syncing = false;
+    btn.disabled = false;
+    updateSyncStatus();
+  }
+}
+
 // ---------- local feeds management ----------
 let localTmp = null;
 async function getLocal() {
@@ -885,6 +953,7 @@ $('#feeds-errors').addEventListener('click', async (ev) => {
 });
 
 Object.assign(actions, {
+  'sync-now': () => { collectForm(); if (!S.settings.sync) { toast('Switch sync on first'); return; } return syncNow({ manual: true }); },
   'retry-failed': async () => {
     const buttons = $$('#feeds-failed-actions button');
     const btn = $('[data-action="retry-failed"]');
@@ -1001,6 +1070,7 @@ async function syncAfterChange() {
   }
 }
 async function afterManage() {
+  scheduleSync();
   await syncAfterChange();
   await renderManage();
 }
@@ -1101,6 +1171,7 @@ function openSettings(welcome = false) {
     : 'Opens Feedly to sign in. Needs a Feedly OAuth client set up on your proxy (see README).';
   $('.token-alt').open = !signedIn && !!S.settings.token;
   updateFeedStatus();
+  updateSyncStatus();
   el.settings.classList.toggle('welcome', welcome);
   if (!el.settings.open) el.settings.showModal();
 }
@@ -1119,12 +1190,16 @@ el.form.addEventListener('submit', (ev) => {
   const prev = { ...S.settings };
   collectForm();
   const accountChanged = ['token', 'proxy', 'proxyKey', 'source'].some((k) => prev[k] !== S.settings[k]);
+  const syncTurnedOn = S.settings.sync && (!prev.sync || prev.proxy !== S.settings.proxy || prev.proxyKey !== S.settings.proxyKey);
   if (accountChanged && S.settings.token) { S.settings.demo = false; S.settings.userId = null; }
   LS.set('settings', S.settings);
   applyAppearance();
-  if (accountChanged || (!S.api && (S.settings.token || S.settings.oauth))) { S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null; start(); }
+  let started = Promise.resolve();
+  if (accountChanged || (!S.api && (S.settings.token || S.settings.oauth))) { S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null; started = start(); }
   else if (prev.sort !== S.settings.sort) openStream(S.streamId);
   else { renderList(); renderArticle(); }
+  if (S.api?.local) S.api.syncOn = !!S.settings.sync;
+  if (syncTurnedOn) started.then(() => syncNow({ manual: true }));
 });
 // live preview of appearance
 el.form.addEventListener('input', (ev) => {
@@ -1196,6 +1271,8 @@ async function start() {
     S.api = new DemoFeedly();
   } else {
     S.api = new LocalFeeds(st);
+    S.api.syncOn = !!st.sync;
+    S.api.syncClient = new SyncClient(S.api);
     try { await S.api.init(); } catch (e) { fail(new Error('Local storage is unavailable in this browser mode.')); }
     if (!S.api.feeds.size) {
       S.api = null;
@@ -1204,7 +1281,7 @@ async function start() {
       el.entries.innerHTML = `<div class="empty-state welcome">
         <div class="logo"><img src="icons/icon.svg" alt=""></div>
         <h2>Welcome to Pwrss</h2>
-        <p>A fast, gesture-friendly feed reader. Start by importing your subscriptions as an OPML file (from Feedly: feedly.com/i/opml).</p>
+        <p>A fast, gesture-friendly feed reader. Start by importing your subscriptions as an OPML file (from Feedly: feedly.com/i/opml). Already use Pwrss on another device? Open Settings, enter your proxy, and switch on Sync.</p>
         <button class="primary" data-action="settings">Import feeds</button>
         <button class="ghost" data-action="demo">Try the demo</button>
       </div>`;
@@ -1246,6 +1323,7 @@ async function start() {
     await openStream(S.streamId, { keepScroll: true });
     flush();
     autoRefresh();
+    scheduleSync(800);
   } catch (e) {
     fail(e);
     if (!S.entries.length) {
@@ -1288,5 +1366,8 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') hiddenAt = Date.now();
-  else if (hiddenAt && Date.now() - hiddenAt > 15 * 60 * 1000) refresh();
+  else {
+    if (hiddenAt && Date.now() - hiddenAt > 60 * 1000) scheduleSync(300);
+    if (hiddenAt && Date.now() - hiddenAt > 15 * 60 * 1000) refresh();
+  }
 });
