@@ -221,6 +221,28 @@ server.listen(0, async () => {
     await B.waitForFunction(() => Number(document.querySelector('.src[data-stream*="global.all"] .count')?.textContent || 0) === 1, null, { timeout: 15000 });
     check('B picks up the change on its own after two minutes', (await allCountOn(B)) === 1);
 
+    // ================= a device with wrongly unread articles is repaired by a full re-read =================
+    await A.locator('.entry', { hasText: 'Second post' }).click();
+    await A.waitForSelector('.art-head');
+    // opening it marks it read again on A (it was left unread by the previous step)
+    await A.waitForTimeout(1500);
+    await syncNow(A);
+    await syncNow(B);
+    check('B has the read state', (await allCountOn(B)) === 0, await allCountOn(B));
+    // damage B the way the old bug did: the article is unread again, and the cloud will not resend its state
+    await B.evaluate(async () => {
+      const s = await import('./js/store.js');
+      const e = (await s.getAll('entries')).find((x) => x.title === 'Second post');
+      e.unread = true;
+      await s.put('entries', [e]);
+      const sy = (await s.getAll('meta')).find((m) => m.id === 'sync');
+      delete sy.state.repaired; // as on a device from before the repair marker existed
+      await s.put('meta', [sy]);
+    });
+    await B.reload();
+    await B.waitForFunction(() => !document.querySelector('.src[data-stream*="global.all"] .count'), null, { timeout: 20000 });
+    check('after the update, B re-reads the cloud and the article is read again', (await allCountOn(B)) === 0, await allCountOn(B));
+
     // ================= the Worker refuses without a proxy key =================
     const saved = env.PROXY_KEY;
     env.PROXY_KEY = undefined;

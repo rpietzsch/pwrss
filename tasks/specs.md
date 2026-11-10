@@ -2,6 +2,12 @@
 
 The current, authoritative behavior of the app. See AGENTS.md for how to maintain this file.
 
+## App updates
+
+- An installed app picks up a new version by itself. When a new version has been downloaded and takes over, the app saves pending changes, reloads once, and shows "Updated to the latest version". Nothing is lost: all data is on the device.
+- The app asks for a newer version when it starts and whenever it returns to the foreground (at most every 10 minutes), not only when the browser decides to.
+- Settings shows the running version at the bottom ("Version abc1234", or "Version dev" when run from source), so it is clear which code a device runs.
+
 ## Messages
 
 - Short status messages (toasts) are always visible, including while Settings or Manage feeds is open: they are drawn above dialogs.
@@ -45,6 +51,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Settings → Sync has a switch, **Sync now**, and a status line (last sync time, number of changes waiting, last error). Turning the switch on and saving syncs immediately; on a device with no feeds yet, this brings in the feed list and starts the app.
 - Changes made on a device are queued with a timestamp and sent together. A sync runs: after turning sync on, a few seconds after any local change (read or saved state, and **every change to the feed list**: adding, removing, renaming, moving or re-addressing feeds, categories, imports, and removing or fixing failed feeds in Settings), when the app starts, when it returns to the foreground after more than a minute, **every 2 minutes while the app is open and visible** (so changes from other devices arrive without any action), and on **Sync now**. It works offline: changes wait in the queue until the next successful sync.
 - Conflicts: for read and for saved, the change with the latest timestamp wins, per article. The feed list is replaced as a whole by the most recent change. A device whose copy is older receives the newer list, even if it also changed something in between.
+- A device re-reads **all** cloud states once after it first runs a version with the current repair marker (and when sync is switched on). This corrects articles that wrongly turned unread on a device that missed their read state earlier. States changed locally since the last sync are never overwritten.
 - When the feed list from the cloud adds feeds, they are fetched at once. Feeds missing from the cloud copy are removed (their unsaved articles with them). An empty cloud list never removes feeds from a device that has some.
 - A synced state only changes what was actually set elsewhere: saving or unsaving an article on one device never changes its read state on another, and the other way round.
 - Articles unknown to a device get their synced read state when they first arrive, so an article read elsewhere appears read.

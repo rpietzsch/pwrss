@@ -2,6 +2,8 @@
 import { ApiError } from './api.js';
 
 const PUSH_BATCH = 2000;
+// Bump to make every device re-read all cloud states once (repairs read states damaged by an earlier bug).
+const REPAIR_ID = 'read-state-1';
 
 /**
  * What a server flag says about an article. A field counts only if it was ever set (timestamp > 0):
@@ -38,6 +40,7 @@ export class SyncClient {
     await lf.init();
     const st = lf.sync;
     lf.seedSync();
+    if (st.repaired !== REPAIR_ID) { st.seq = 0; st.repaired = REPAIR_ID; } // full re-read, once
     const result = { changed: new Set(), docChanged: false, newFeeds: 0, sent: 0 };
     let first = true;
     let more = true;

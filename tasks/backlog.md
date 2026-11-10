@@ -30,6 +30,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-10 — Updates: installed app reloads itself onto a new version (it kept running old code), update check on foreground, version shown in Settings, one-time full re-read of cloud states to repair damaged read states (spec: #app-updates, #sync-across-devices)
 - [x] 2026-11-09 — Sync timing: every feed list change (incl. removing/fixing failed feeds in Settings) schedules a sync; open app checks every 2 minutes (spec: #sync-across-devices)
 - [x] 2026-11-09 — Read state survives refresh: never drop articles a feed still lists, Mark all covers everything loaded before the list (not just the newest visible), stable identity when a feed changes GUIDs, sync flags no longer overwrite unset fields (spec: #local-feeds-default-source, #sync-across-devices)
 - [x] 2026-11-09 — Cross-device sync through the Worker (SQLite Durable Object): feed list and read/saved state, offline queue, latest change wins; two-device end-to-end test (spec: #sync-across-devices)

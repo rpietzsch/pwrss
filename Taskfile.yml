@@ -50,6 +50,7 @@ tasks:
       - node tests/local.cjs .
       - node tests/readstate.cjs .
       - node tests/sync.cjs .
+      - node tests/update.cjs .
       - node tests/smoke.cjs .
 
   test:dist:

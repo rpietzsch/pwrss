@@ -9,4 +9,5 @@ mkdir -p "$OUT"
 cp -r index.html styles.css manifest.webmanifest sw.js .nojekyll js vendor icons "$OUT"/
 # bust the service-worker cache on every deploy
 sed -i.bak "s/__BUILD__/${VERSION}/" "$OUT/sw.js" && rm "$OUT/sw.js.bak"
+sed -i.bak "s/__BUILD__/${VERSION}/" "$OUT/js/version.js" && rm "$OUT/js/version.js.bak"
 echo "Built $OUT (version $VERSION)"

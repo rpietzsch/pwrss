@@ -42,6 +42,9 @@ server.listen(0, async () => {
     await p.waitForSelector('.entry');
     check('entries render', (await p.locator('.entry').count()) > 10);
 
+    await p.click('.bar [data-action="settings"]');
+    check('settings shows the app version', /Version dev/.test(await p.textContent('#app-version')), await p.textContent('#app-version'));
+    await p.click('#settings .dlg-head .icon-btn');
     {
       const r = await iconsOk(p);
       check('all list/toolbar icons exist in the Lucide sprite', r.count > 8 && r.missing.length === 0, r);

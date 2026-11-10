@@ -4,6 +4,7 @@ import { LocalFeeds } from './local.js';
 import { parseOPML } from './opml.js';
 import { isHNHost, hnApiReplacement } from './hnapi.js';
 import { SyncClient } from './sync.js';
+import { VERSION } from './version.js';
 import { sanitize, readerView } from './reader.js';
 import { swipeRows, edgeBack, flick, pullToRefresh } from './gestures.js';
 
@@ -1173,6 +1174,7 @@ function openSettings(welcome = false) {
   $('.token-alt').open = !signedIn && !!S.settings.token;
   updateFeedStatus();
   updateSyncStatus();
+  $('#app-version').textContent = `Version ${VERSION.startsWith('__') ? 'dev' : VERSION}`;
   el.settings.classList.toggle('welcome', welcome);
   if (!el.settings.open) el.settings.showModal();
 }
@@ -1362,7 +1364,29 @@ setView('list');
 handleOAuthReturn().then(start);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // A new version takes over (skipWaiting + claim in sw.js) but the running page still has the old code:
+  // reload once, after saving pending changes, so no device keeps running an outdated version.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', async () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    try { await flush(); } catch {}
+    try { sessionStorage.setItem('pwrss.updated', '1'); } catch {}
+    location.reload();
+  });
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
+  let lastUpdateCheck = 0;
+  const checkForUpdate = () => {
+    if (Date.now() - lastUpdateCheck < 10 * 60 * 1000) return;
+    lastUpdateCheck = Date.now();
+    navigator.serviceWorker.getRegistration().then((r) => r?.update()).catch(() => {});
+  };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+  setTimeout(checkForUpdate, 3000);
+  try {
+    if (sessionStorage.getItem('pwrss.updated')) { sessionStorage.removeItem('pwrss.updated'); setTimeout(() => toast('Updated to the latest version', 2500), 800); }
+  } catch {}
 }
 // While the app is open: pick up changes from other devices without any action.
 const SYNC_EVERY_MS = 2 * 60 * 1000;
