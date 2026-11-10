@@ -6,6 +6,7 @@ See AGENTS.md for conventions.
 
 ## Next
 
+- [ ] Make the sync state (cursor, waiting changes) tab-safe like the article state (Web Locks around sync runs, per-article waiting records) (spec: #several-tabs-or-windows)
 - [ ] Verify sync on the real Worker with two real devices (first deploy creates the Durable Object) (spec: #sync-across-devices)
 - [ ] Sync settings that are per-device on purpose? (theme, toolbar) — decide whether to sync appearance (spec: #sync-across-devices)
 - [ ] Confirm the earlier 'Proxy error 404' on retry doesn't come back (the error text now shows the endpoint and reply) (spec: #accounts-and-proxy)
@@ -30,6 +31,7 @@ See AGENTS.md for conventions.
 
 ## Done
 
+- [x] 2026-11-10 — Read state survives everything the randomized end-to-end test throws at it: durable queue for all marks (Mark all included), automatic reconnect to a lost database, per-article queue storage, state/content-separated writes so tabs can't overwrite each other, stable cross-device article keys (feed + link + title), visible save warning, Diagnostics panel (spec: #saving-changes, #several-tabs-or-windows, #sync-across-devices)
 - [x] 2026-11-10 — Updates: installed app reloads itself onto a new version (it kept running old code), update check on foreground, version shown in Settings, one-time full re-read of cloud states to repair damaged read states (spec: #app-updates, #sync-across-devices)
 - [x] 2026-11-09 — Sync timing: every feed list change (incl. removing/fixing failed feeds in Settings) schedules a sync; open app checks every 2 minutes (spec: #sync-across-devices)
 - [x] 2026-11-09 — Read state survives refresh: never drop articles a feed still lists, Mark all covers everything loaded before the list (not just the newest visible), stable identity when a feed changes GUIDs, sync flags no longer overwrite unset fields (spec: #local-feeds-default-source, #sync-across-devices)

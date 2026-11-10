@@ -62,7 +62,8 @@ Settings. Pwrss fetches all feeds and keeps articles, read and saved state in th
 Things to know:
 
 - Some sites refuse requests from Cloudflare's network (Hacker News answers `419 Sorry`; W3C and Forbes show a "you have been blocked" page). Those feeds show up in the failed list with the reason. For **Hacker News**, tap *Use Hacker News API instead* on its entry: the browser then reads the public HN Search API directly, with no proxy involved.
-- The app updates itself: when a new version is available it reloads once and says so. Settings shows the running version at the bottom.
+- Changes are saved safely: every read mark goes into a durable queue before the database is touched, is retried if the browser can't write, and is re-applied after a reload. A notice above the list tells you when saving is delayed. Settings → Diagnostics shows counters and recent problems (handy for bug reports).
+- The app updates itself: when a new version is available it reloads once and says so. Settings shows the running version next to its heading.
 - Without sync, state stays on the device. Export OPML any time to back up or move your feed list.
 - Feeds only offer their latest items, so history starts when you first import.
 - Feeds refresh when you open the app (if it's been 15+ minutes), when you return to it, and when you pull down.
@@ -135,6 +136,10 @@ tests/smoke.cjs     end-to-end tests (demo mode, mocked OAuth)
 tests/local.cjs     parser, OPML and local-feeds flow tests (mocked proxy)
 tests/sync-store.cjs  sync server logic on real SQLite + Worker route rules
 tests/sync.cjs      two devices syncing through the real Worker code
+tests/persist.cjs   saving survives a failing database (queue, retry, warning, reload)
+tests/readstate.cjs refreshes and mark all never bring read articles back
+tests/update.cjs    the installed app updates itself
+tests/fuzz.cjs      randomized end-to-end test: devices, tabs, outages, changing feeds (task fuzz)
 tests/worker.cjs    unit tests for the proxy worker
 tasks/              backlog.md + specs.md
 sw.js               service worker (app-shell cache)

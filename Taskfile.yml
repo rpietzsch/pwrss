@@ -49,6 +49,8 @@ tasks:
       - node tests/sync-store.cjs
       - node tests/local.cjs .
       - node tests/readstate.cjs .
+      - node tests/persist.cjs .
+      - node tests/tabs.cjs .
       - node tests/sync.cjs .
       - node tests/update.cjs .
       - node tests/smoke.cjs .
@@ -59,8 +61,24 @@ tasks:
     cmds:
       - node tests/local.cjs {{.OUT}}
       - node tests/readstate.cjs {{.OUT}}
+      - node tests/persist.cjs {{.OUT}}
+      - node tests/tabs.cjs {{.OUT}}
       - node tests/sync.cjs {{.OUT}}
       - node tests/smoke.cjs {{.OUT}}
+
+  fuzz:
+    desc: Randomized read-state test (two synced devices, tabs, GUID churn, database outages); SEEDS="1 2 3" STEPS=40
+    vars:
+      SEEDS: '{{.SEEDS | default "1 2 3 4"}}'
+      STEPS: '{{.STEPS | default "40"}}'
+    cmds:
+      - |
+        fail=0
+        for s in {{.SEEDS}}; do
+          OUTAGE=hard node tests/fuzz.cjs $s {{.STEPS}} 0 || fail=1
+          OUTAGE=soft node tests/fuzz.cjs $s {{.STEPS}} 1 || fail=1
+        done
+        exit $fail
 
   check:
     desc: Lint + test (run before committing)

@@ -28,6 +28,9 @@ function hash(str) {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
+// Cross-device key of an article: feed + link + title (stable even if a feed changes its GUIDs). Used for sync only.
+const lkOf = (feedId, link, title) => (link ? 'l' + hash('L' + feedId + '\n' + link + '\n' + (title || '')) : undefined);
+
 const abs = (u, base) => { try { return new URL(u, base || undefined).href; } catch { return u || ''; } };
 
 export function normalizeUrl(input) {
@@ -51,6 +54,12 @@ export class LocalFeeds {
     this.entries = new Map(); // id -> entry
     this.failed = [];
     this.syncOn = false;      // set by the app from Settings
+    this.iid = Math.random().toString(36).slice(2);
+    try {
+      this.bc = new BroadcastChannel('pwrss-state'); // other tabs tell us when they change read/saved state
+      this.bc.onmessage = (ev) => this.onOtherTab(ev.data);
+    } catch { this.bc = null; }
+    this.audit = { newUnread: 0, cloudUnread: 0, cloudRead: 0 }; // why articles changed state since the app started
     this.sync = { seq: 0, docRev: 0, docAt: 0, syncedDocAt: 0, dirty: {}, remote: {}, seeded: false, lastSync: 0 };
   }
 
@@ -63,6 +72,7 @@ export class LocalFeeds {
       const [feeds, entries, meta] = await Promise.all([store.getAll('feeds'), store.getAll('entries'), store.getAll('meta')]);
       for (const f of feeds) this.feeds.set(f.id, f);
       for (const e of entries) this.entries.set(e.id, e);
+      this.deriveKeys();
       this.catOrder = meta.find((m) => m.id === 'categories')?.labels || [];
       const sy = meta.find((m) => m.id === 'sync');
       if (sy) this.sync = { ...this.sync, ...sy.state };
@@ -71,6 +81,21 @@ export class LocalFeeds {
     })();
     return this._init;
   }
+
+  /** Give articles stored without a cross-device key one, when their feed + link + title is unique. */
+  deriveKeys() {
+    const count = new Map();
+    const keyOf = (e) => (e.alternate?.[0]?.href ? lkOf(e.feedId, e.alternate[0].href, e.title) : undefined);
+    for (const e of this.entries.values()) { const k = keyOf(e); if (k) count.set(k, (count.get(k) || 0) + 1); }
+    for (const e of this.entries.values()) {
+      if (e.lk) continue;
+      const k = keyOf(e);
+      if (k && count.get(k) === 1) e.lk = k;
+    }
+  }
+
+  /** The key under which this article's read/saved state travels between devices. */
+  fid(e) { return e.lk || e.id; }
 
   // Make sure every category is listed and every feed has an order (older data may lack both).
   async normalize() {
@@ -83,6 +108,35 @@ export class LocalFeeds {
       list.forEach((f, i) => { if (f.order !== i) { f.order = i; changedFeeds.push(f); } });
     }
     await store.put('feeds', changedFeeds);
+  }
+
+  destroy() { try { this.bc?.close(); } catch {} }
+
+  /** Store the read/saved state of articles (only those fields) and tell the other tabs. */
+  async persistState(entries) {
+    if (!entries.length) return;
+    await store.patch('entries', entries.map((e) => ({ id: e.id, set: { unread: e.unread, tags: e.tags }, create: e })));
+    try { this.bc?.postMessage({ from: this.iid, items: entries.map((e) => ({ id: e.id, unread: e.unread, tags: e.tags })) }); } catch {}
+  }
+
+  /** Store the content of articles (everything except read/saved state); a new article is stored whole. */
+  persistContent(entries) {
+    return store.patch('entries', entries.map((e) => {
+      const { unread, tags, ...content } = e;
+      return { id: e.id, set: content, create: e };
+    }));
+  }
+
+  /** Another tab changed read/saved state: follow it in memory. */
+  onOtherTab(msg) {
+    if (!msg || msg.from === this.iid) return;
+    const changed = [];
+    for (const it of msg.items || []) {
+      const e = this.entries.get(it.id);
+      if (!e || this.getPending?.()?.[e.id]) continue;
+      if (e.unread !== it.unread || (e.tags.length > 0) !== (it.tags.length > 0)) { e.unread = it.unread; e.tags = it.tags; changed.push(e.id); }
+    }
+    if (changed.length) this.onExternalChange?.(changed);
   }
 
   failure(f) { return { id: f.id, title: f.title || f.url, url: f.url, error: f.error, detail: f.errorDetail || '' }; }
@@ -176,8 +230,40 @@ export class LocalFeeds {
       changed.push(e);
       this.recordDirty(e, action);
     }
-    await store.put('entries', changed);
+    await this.persistState(changed);
     if (this.syncOn && changed.length) await this.saveSync();
+    return changed.map((e) => e.id); // the ids that exist and are now stored; the app keeps queued intents for all others
+  }
+
+  /** Ids of the unread articles of a stream that existed at `asOf` (what "mark all as read" covers). */
+  unreadIds(streamId, asOf) {
+    const out = [];
+    for (const e of this.entries.values()) {
+      if (e.unread && this.matches(streamId, e) && (e.crawled || e.published) <= asOf) out.push(e.id);
+    }
+    return out;
+  }
+
+  diag() {
+    let unread = 0;
+    for (const e of this.entries.values()) if (e.unread) unread++;
+    const s = this.sync;
+    return {
+      feeds: this.feeds.size, articles: this.entries.size, unread,
+      queued: Object.keys(this.getPending?.() || {}).length,
+      sync: this.syncOn, dirty: Object.keys(s.dirty).length, remote: Object.keys(s.remote).length, seq: s.seq, docRev: s.docRev, repaired: s.repaired || '-',
+      lastSync: s.lastSync, lastRefresh: this.lastRefresh(), audit: { ...this.audit },
+    };
+  }
+
+  /** Apply queued intents (id -> { read, saved }) to the in-memory articles, so counts and lists are right at once. */
+  applyIntents(pending) {
+    for (const [id, p] of Object.entries(pending || {})) {
+      const e = this.entries.get(id);
+      if (!e) continue;
+      if ('read' in p) e.unread = !p.read;
+      if ('saved' in p) e.tags = p.saved ? [{ id: this.savedId() }] : [];
+    }
   }
 
   async markStreamRead(streamId, asOf) {
@@ -186,7 +272,7 @@ export class LocalFeeds {
     for (const e of this.entries.values()) {
       if (e.unread && this.matches(streamId, e) && (e.crawled || e.published) <= asOf) { e.unread = false; changed.push(e); this.recordDirty(e, 'markAsRead'); }
     }
-    await store.put('entries', changed);
+    await this.persistState(changed);
     if (this.syncOn && changed.length) await this.saveSync();
   }
 
@@ -295,7 +381,7 @@ export class LocalFeeds {
     f.title = title;
     for (const e of this.entries.values()) if (e.feedId === id) e.feedTitle = title;
     await store.put('feeds', [f]);
-    await store.put('entries', [...this.entries.values()].filter((e) => e.feedId === id));
+    await this.persistContent([...this.entries.values()].filter((e) => e.feedId === id));
     await this.touchDoc();
   }
 
@@ -397,7 +483,7 @@ export class LocalFeeds {
   savedPayload(e) {
     const cut = (t, n) => (t && t.length > n ? t.slice(0, n) : t);
     return {
-      id: e.id, feedId: e.feedId, feedTitle: e.feedTitle || this.feeds.get(e.feedId)?.title || '', title: e.title, author: e.author,
+      id: e.id, lk: e.lk, feedId: e.feedId, feedTitle: e.feedTitle || this.feeds.get(e.feedId)?.title || '', title: e.title, author: e.author,
       published: e.published, alternate: e.alternate, canonicalUrl: e.canonicalUrl,
       summary: { content: cut(e.summary?.content || e.content?.content || '', 4000) }, visual: e.visual,
     };
@@ -405,7 +491,7 @@ export class LocalFeeds {
 
   recordDirty(e, action) {
     if (!this.syncOn) return;
-    const d = (this.sync.dirty[e.id] ||= {});
+    const d = (this.sync.dirty[this.fid(e)] ||= {});
     const t = Date.now();
     if (action === 'markAsRead' || action === 'keepUnread') { d.read = action === 'markAsRead'; d.readAt = t; }
     else { d.saved = action === 'markAsSaved'; d.savedAt = t; if (d.saved) d.entry = this.savedPayload(e); else delete d.entry; }
@@ -420,7 +506,7 @@ export class LocalFeeds {
       const saved = e.tags.length > 0;
       const read = !e.unread && (e.published || e.crawled || 0) > recent;
       if (!saved && !read) continue;
-      const d = (s.dirty[e.id] ||= {});
+      const d = (s.dirty[this.fid(e)] ||= {});
       if (read) { d.read = true; d.readAt ??= e.crawled || 1; }
       if (saved) { d.saved = true; d.savedAt ??= Date.now(); d.entry = this.savedPayload(e); }
     }
@@ -459,24 +545,27 @@ export class LocalFeeds {
   async applyRemoteFlags(list) {
     const changedIds = new Set();
     const touched = [];
+    const byKey = new Map();
+    for (const e of this.entries.values()) if (e.lk) byKey.set(e.lk, e);
     for (const f of list) {
-      if (this.sync.dirty[f.id]) continue; // changed again here since the request started
+      const e = this.entries.get(f.id) || byKey.get(f.id); // the key is a local id (older flags) or a cross-device key
+      if (this.sync.dirty[f.id] || (e && (this.sync.dirty[this.fid(e)] || this.getPending?.()?.[e.id]))) continue; // a local change is not sent or not stored yet
       const rs = remoteState(f);
-      const e = this.entries.get(f.id);
       if (e) {
-        if (rs.read !== undefined && e.unread === rs.read) { e.unread = !rs.read; changedIds.add(f.id); touched.push(e); }
-        if (rs.saved !== undefined && (e.tags.length > 0) !== rs.saved) { e.tags = rs.saved ? [{ id: this.savedId() }] : []; changedIds.add(f.id); touched.push(e); }
+        if (rs.read !== undefined && e.unread === rs.read) { e.unread = !rs.read; this.audit[rs.read ? 'cloudRead' : 'cloudUnread']++; changedIds.add(e.id); touched.push(e); }
+        if (rs.saved !== undefined && (e.tags.length > 0) !== rs.saved) { e.tags = rs.saved ? [{ id: this.savedId() }] : []; changedIds.add(e.id); touched.push(e); }
       } else if (rs.saved && f.entry) {
-        const ne = { ...f.entry, id: f.id, crawled: Date.now(), tags: [{ id: this.savedId() }], unread: rs.read === undefined ? true : !rs.read };
-        this.entries.set(f.id, ne);
-        changedIds.add(f.id); touched.push(ne);
+        const ne = { ...f.entry, crawled: Date.now(), tags: [{ id: this.savedId() }], unread: rs.read === undefined ? true : !rs.read };
+        ne.id ||= f.id;
+        this.entries.set(ne.id, ne);
+        changedIds.add(ne.id); touched.push(ne);
       } else if (rs.read) {
         this.sync.remote[f.id] = { read: true, at: f.readAt };
       } else if (rs.read === false) {
         delete this.sync.remote[f.id];
       }
     }
-    await store.put('entries', [...new Set(touched)]);
+    await this.persistState([...new Set(touched)]);
     return changedIds;
   }
 
@@ -564,7 +653,7 @@ export class LocalFeeds {
         onProgress?.(Math.min(done, feeds.length), feeds.length);
       }));
       await store.put('feeds', changedFeeds);
-      await store.put('entries', changedEntries);
+      await this.persistContent(changedEntries);
     }
 
     const worker = async () => {
@@ -584,7 +673,7 @@ export class LocalFeeds {
             changedFeeds.push(f);
           }
           await store.put('feeds', changedFeeds);
-          await store.put('entries', changedEntries);
+          await this.persistContent(changedEntries);
         } catch (e) {
           fatal = e;
         }
@@ -647,27 +736,33 @@ export class LocalFeeds {
     const batch = parsed.items.filter((it) => it.guid);
     const idOf = (it) => 'e' + hash(f.id + '\n' + it.guid);
     const linkOf = (it) => (it.link ? abs(it.link, base) : '');
-    // A feed may change its GUIDs but keep its links: match by link, but only when that is unambiguous.
+    const titleOf = (it) => it.title || '';
+    const keyOf = (it) => { const l = linkOf(it); return l ? l + '\n' + titleOf(it) : ''; };
+    // A feed may change its GUIDs but keep link and title: match by those, but only when that is unambiguous.
     const batchIds = new Set(batch.map(idOf));
-    const linkCount = new Map();
-    for (const it of batch) { const l = linkOf(it); if (l) linkCount.set(l, (linkCount.get(l) || 0) + 1); }
-    const byLink = new Map();
-    for (const e of this.entries.values()) if (e.feedId === f.id && e.alternate?.[0]?.href) byLink.set(e.alternate[0].href, e);
+    const pairCount = new Map();
+    for (const it of batch) { const k = keyOf(it); if (k) pairCount.set(k, (pairCount.get(k) || 0) + 1); }
+    const byPair = new Map();
+    for (const e of this.entries.values()) {
+      if (e.feedId === f.id && e.alternate?.[0]?.href) byPair.set(e.alternate[0].href + '\n' + (e.title || ''), e);
+    }
 
     const listed = [];
     for (const it of batch) {
       const guidId = idOf(it);
       const link = linkOf(it);
+      const pair = keyOf(it);
       let cur = this.entries.get(guidId);
-      if (!cur && link && linkCount.get(link) === 1) {
-        const c = byLink.get(link);
+      if (!cur && pair && pairCount.get(pair) === 1) {
+        const c = byPair.get(pair);
         if (c && !batchIds.has(c.id)) cur = c;
       }
       const id = cur ? cur.id : guidId;
       listed.push(id);
       const published = it.published ?? cur?.published ?? now;
+      const title = it.title || cur?.title || '(untitled)';
       const fields = {
-        title: it.title || cur?.title || '(untitled)',
+        title,
         author: it.author || '',
         published,
         alternate: link ? [{ href: link, type: 'text/html' }] : [],
@@ -676,21 +771,24 @@ export class LocalFeeds {
         content: it.html ? { content: it.html } : undefined,
         visual: it.image ? { url: abs(it.image, base) } : undefined,
         feedTitle: f.title,
+        lk: pair && pairCount.get(pair) === 1 ? lkOf(f.id, link, it.title || '') : undefined,
       };
       const sig = JSON.stringify(fields);
       if (cur) {
         if (cur.sig !== sig) { Object.assign(cur, fields); cur.sig = sig; changedEntries.push(cur); }
       } else {
-        const remote = this.sync.remote[id];
+        const remote = (fields.lk && this.sync.remote[fields.lk]) || this.sync.remote[id];
+        const intent = this.getPending?.()?.[id]; // marked here before the article was stored (e.g. a write failed)
         const e = {
           id, feedId: f.id, crawled: now, tags: [], sig,
-          unread: !(first && now - published > FIRST_FETCH_UNREAD_MS) && !remote?.read,
+          unread: intent && 'read' in intent ? !intent.read : !(first && now - published > FIRST_FETCH_UNREAD_MS) && !remote?.read,
           ...fields,
         };
-        if (remote) delete this.sync.remote[id];
+        if (intent && 'saved' in intent && intent.saved) e.tags = [{ id: this.savedId() }];
+        if (remote) { delete this.sync.remote[fields.lk]; delete this.sync.remote[id]; }
         this.entries.set(id, e);
         changedEntries.push(e);
-        if (e.unread) added++;
+        if (e.unread) { added++; this.audit.newUnread++; }
       }
     }
     // What the feed lists right now. An empty answer is not trusted (it may be a glitch).

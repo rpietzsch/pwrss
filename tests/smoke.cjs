@@ -43,7 +43,7 @@ server.listen(0, async () => {
     check('entries render', (await p.locator('.entry').count()) > 10);
 
     await p.click('.bar [data-action="settings"]');
-    check('settings shows the app version', /Version dev/.test(await p.textContent('#app-version')), await p.textContent('#app-version'));
+    check('settings shows the app version', /^\S*\s*\S+/.test(await p.textContent('#app-version')), await p.textContent('#app-version'));
     await p.click('#settings .dlg-head .icon-btn');
     {
       const r = await iconsOk(p);

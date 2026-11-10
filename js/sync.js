@@ -3,7 +3,7 @@ import { ApiError } from './api.js';
 
 const PUSH_BATCH = 2000;
 // Bump to make every device re-read all cloud states once (repairs read states damaged by an earlier bug).
-const REPAIR_ID = 'read-state-1';
+const REPAIR_ID = 'read-state-2';
 
 /**
  * What a server flag says about an article. A field counts only if it was ever set (timestamp > 0):

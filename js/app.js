@@ -5,6 +5,7 @@ import { parseOPML } from './opml.js';
 import { isHNHost, hnApiReplacement } from './hnapi.js';
 import { SyncClient } from './sync.js';
 import { VERSION } from './version.js';
+import { setDbLogger } from './store.js';
 import { sanitize, readerView } from './reader.js';
 import { swipeRows, edgeBack, flick, pullToRefresh } from './gestures.js';
 
@@ -21,6 +22,44 @@ const DEFAULTS = {
   sort: 'newest', swipeRight: 'read', theme: 'auto', fontSize: 18, font: 'sans', toolbar: 'bottom', oauth: null, source: 'local', sync: false,
 };
 
+// The queue of marks that are not stored yet: one localStorage entry per article. A second tab (or window) of the
+// app can then never overwrite marks the first one still has to store, which one shared blob could not guarantee.
+const PEND = 'pwrss.p.';
+const Pending = {
+  load() {
+    const out = {};
+    try {
+      const old = LS.get('pending', null); // older versions kept everything in one entry
+      if (old && typeof old === 'object') {
+        for (const [id, v] of Object.entries(old)) localStorage.setItem(PEND + id, JSON.stringify(v));
+        LS.del('pending');
+      }
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(PEND)) continue;
+        const v = JSON.parse(localStorage.getItem(k));
+        if (v) out[k.slice(PEND.length)] = v;
+      }
+    } catch {}
+    return out;
+  },
+  save(id) {
+    try {
+      const v = S.pending[id];
+      if (v) localStorage.setItem(PEND + id, JSON.stringify(v)); else localStorage.removeItem(PEND + id);
+    } catch {}
+  },
+  clear() {
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith(PEND)) keys.push(k); }
+      for (const k of keys) localStorage.removeItem(k);
+      LS.del('pending');
+    } catch {}
+    S.pending = {};
+  },
+};
+
 const S = {
   settings: { ...DEFAULTS, ...LS.get('settings', {}) },
   api: null,
@@ -30,7 +69,7 @@ const S = {
   streamId: LS.get('stream', null),
   entries: [], byId: new Map(), continuation: null, loading: false, gen: 0,
   currentId: null, reader: false,
-  pending: LS.get('pending', {}),
+  pending: Pending.load(),
 };
 
 // ---------- helpers ----------
@@ -439,14 +478,27 @@ function renderSourcesSoon() {
 // ---------- sync queue ----------
 let flushTimer;
 function queue(id, key, val) {
-  (S.pending[id] ||= {})[key] = val;
-  LS.set('pending', S.pending);
+  const p = (S.pending[id] ||= {});
+  p[key] = val;
+  p.t = Date.now();
+  Pending.save(id);
   clearTimeout(flushTimer);
   flushTimer = setTimeout(flush, 900);
 }
 let flushing = false;
+let flushFailures = 0;
+let retryTimer;
+const PENDING_MAX_AGE = 30 * 24 * 3600 * 1000;
+
+function showPersistWarning(on) {
+  const w = $('#persist-warning');
+  if (w) w.hidden = !on;
+}
+
 async function flush() {
   if (flushing || !S.api || (!navigator.onLine && !S.api.local)) return;
+  const now = Date.now();
+  for (const [id, p] of Object.entries(S.pending)) if (p.t && now - p.t > PENDING_MAX_AGE) { delete S.pending[id]; Pending.save(id); }
   const snap = JSON.parse(JSON.stringify(S.pending));
   const groups = { markAsRead: [], keepUnread: [], markAsSaved: [], markAsUnsaved: [] };
   for (const [id, p] of Object.entries(snap)) {
@@ -455,26 +507,58 @@ async function flush() {
   }
   if (!Object.values(groups).some((g) => g.length)) return;
   flushing = true;
+  const startedAt = Date.now();
+  let failedNow = false;
   try {
+    // Which queued changes were really stored? Only those leave the queue.
+    const stored = { read: new Set(), saved: new Set() };
     for (const [action, ids] of Object.entries(groups)) {
-      for (let i = 0; i < ids.length; i += 500) await S.api.markers(action, ids.slice(i, i + 500));
+      for (let i = 0; i < ids.length; i += 500) {
+        const batch = ids.slice(i, i + 500);
+        const done = await S.api.markers(action, batch);
+        const kind = action.endsWith('Read') || action === 'keepUnread' ? 'read' : 'saved';
+        for (const id of Array.isArray(done) ? done : batch) stored[kind].add(id); // remote backends return no id list: all confirmed
+      }
     }
     for (const [id, p] of Object.entries(snap)) {
       const cur = S.pending[id];
       if (!cur) continue;
-      for (const k of Object.keys(p)) if (cur[k] === p[k]) delete cur[k];
-      if (!Object.keys(cur).length) delete S.pending[id];
+      for (const k of ['read', 'saved']) if (k in p && stored[k].has(id) && cur[k] === p[k]) delete cur[k];
+      if (!('read' in cur) && !('saved' in cur)) delete S.pending[id];
+      Pending.save(id);
     }
-    LS.set('pending', S.pending);
+    if (flushFailures) logEvent('saved', `Changes saved again after ${flushFailures} failed attempt${flushFailures === 1 ? '' : 's'}`);
+    flushFailures = 0;
+    showPersistWarning(false);
     scheduleSync();
   } catch (e) {
-    if (!(e instanceof ApiError && e.status === 0)) fail(e);
+    // Nothing is lost: the queue is kept (it is in localStorage too) and retried.
+    failedNow = true;
+    flushFailures++;
+    logEvent('save-failed', `${e?.name || 'Error'}: ${e?.message || e}`);
+    showPersistWarning(true);
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(flush, flushFailures === 1 ? 5000 : 30000);
+    if (!(e instanceof ApiError && e.status === 0) && flushFailures === 1) fail(e);
   } finally {
     flushing = false;
+    // marks queued while this save was running: save them right after, they would otherwise wait for the next trigger
+    if (!failedNow && Object.values(S.pending).some((p) => p.t >= startedAt)) setTimeout(flush, 200);
   }
 }
+
+setDbLogger((type, msg) => logEvent(type, msg));
+
+// A short log for Settings → Diagnostics (kept in localStorage; the last 40 events).
+function logEvent(type, msg) {
+  try {
+    const log = LS.get('log', []);
+    log.push({ t: Date.now(), type, msg: String(msg).slice(0, 300) });
+    LS.set('log', log.slice(-40));
+  } catch {}
+}
 addEventListener('online', flush);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+document.addEventListener('visibilitychange', () => { flush(); }); // when hiding, and when returning (retries a failed save)
 
 // ---------- article ----------
 function currentEntry() { return S.byId.get(S.currentId); }
@@ -654,8 +738,8 @@ const actions = {
     if (!confirm('Sign out of Feedly and remove the token from this device? Your local feeds stay.')) return;
     S.settings = { ...S.settings, token: '', oauth: null, demo: false, userId: null, source: 'local' };
     LS.set('settings', S.settings);
-    LS.del('cache.entries'); LS.del('cache.meta'); LS.del('pending'); LS.del('stream');
-    S.pending = {};
+    LS.del('cache.entries'); LS.del('cache.meta'); LS.del('stream');
+    Pending.clear();
     location.reload();
   },
 };
@@ -681,6 +765,20 @@ async function markAll() {
   const asOf = S.api.local ? (S.loadedAt || Date.now())
     : S.settings.sort === 'newest' && S.entries.length ? Math.max(...S.entries.map((e) => e.crawled || e.published || 0)) + 1 : Date.now();
   try {
+    if (S.api.local) {
+      // Durable first: every affected article goes into the queue (localStorage) before any database write.
+      const ids = id === TODAY ? loadedUnread.map((e) => e.id) : S.api.unreadIds(id, asOf);
+      const t = Date.now();
+      for (const i of ids) { const p = (S.pending[i] ||= {}); p.read = true; p.t = t; Pending.save(i); }
+      S.api.applyIntents(Object.fromEntries(ids.map((i) => [i, { read: true }])));
+      for (const e of loadedUnread) e.unread = false;
+      renderList();
+      if (S.currentId) updateToolbar();
+      await loadCounts();
+      await flush();
+      toast(S.pending && ids.some((i) => S.pending[i]) ? 'Marked as read — saving will be retried' : 'Marked as read');
+      return;
+    }
     const r = id === TODAY || id === S.api.savedId() ? null : S.api.markStreamRead(id, asOf);
     if (r) await r;
     else await S.api.markers('markAsRead', loadedUnread.map((e) => e.id));
@@ -723,6 +821,27 @@ document.addEventListener('keydown', (ev) => {
   if (fn() !== false) ev.preventDefault();
 });
 
+// ---------- diagnostics ----------
+async function updateDiagnostics() {
+  const box = $('#diag-text');
+  if (!box) return;
+  let lf = null;
+  try { lf = await getLocal(); } catch {}
+  const when = (t) => (t ? new Date(t).toLocaleString() : 'never');
+  const d = lf?.diag?.();
+  const lines = [`Version ${VERSION.startsWith('__') ? 'dev' : VERSION}`];
+  if (d) {
+    lines.push(`Feeds ${d.feeds} · articles ${d.articles} · unread ${d.unread}`,
+      `Unsaved changes in the queue: ${d.queued}`,
+      `Since the app started: ${d.audit.newUnread} new unread from feeds · cloud marked ${d.audit.cloudRead} read, ${d.audit.cloudUnread} unread`,
+      `Last refresh: ${when(d.lastRefresh)}`,
+      `Sync: ${d.sync ? 'on' : 'off'} · waiting ${d.dirty} · cursor ${d.seq} · list rev ${d.docRev} · repair ${d.repaired} · last ${when(d.lastSync)}`);
+  }
+  const log = LS.get('log', []).slice(-25).reverse();
+  lines.push('', log.length ? 'Recent events:' : 'No problems recorded.', ...log.map((x) => `${new Date(x.t).toLocaleTimeString()}  ${x.type}  ${x.msg}`));
+  box.textContent = lines.join('\n');
+}
+
 // ---------- OAuth sign-in ----------
 const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, '');
 
@@ -764,8 +883,8 @@ async function handleOAuthReturn() {
     const o = await Feedly.exchangeCode(S.settings.proxy, S.settings.proxyKey, q.get('code'), redirectUri());
     S.settings = { ...S.settings, oauth: o, source: 'feedly', demo: false, userId: null };
     LS.set('settings', S.settings);
-    for (const k of ['cache.entries', 'cache.meta', 'pending', 'stream']) LS.del(k);
-    S.pending = {}; S.streamId = null;
+    for (const k of ['cache.entries', 'cache.meta', 'stream']) LS.del(k);
+    Pending.clear(); S.streamId = null;
     toast('Signed in to Feedly', 1800);
   } catch (e) { fail(e); }
 }
@@ -807,6 +926,7 @@ async function syncNow({ manual = false } = {}) {
     if (manual) toast('Syncing…', 60000);
     const r = await lf.syncClient.run();
     syncError = '';
+    if (r.sent || r.changed.size || r.docChanged) logEvent('sync', `sent ${r.sent}, updated ${r.changed.size}${r.docChanged ? ', feed list updated' : ''}`);
     if (!S.api?.local && lf.feeds.size) {
       await useLocalAndRestart(); // a new device: show the feeds that just arrived
       if (manual) toast(`Synced — ${lf.feeds.size} feeds from your other device`, 3500);
@@ -828,6 +948,7 @@ async function syncNow({ manual = false } = {}) {
     if (manual) toast(r.sent || r.changed.size || r.docChanged ? `Synced — ${r.sent} sent, ${r.changed.size} updated${r.docChanged ? ', feed list updated' : ''}` : 'Already in sync', 3000);
   } catch (e) {
     syncError = e.message || String(e);
+    logEvent('sync-failed', syncError);
     if (manual) fail(e);
   } finally {
     syncing = false;
@@ -956,6 +1077,8 @@ $('#feeds-errors').addEventListener('click', async (ev) => {
 });
 
 Object.assign(actions, {
+  'reload-app': () => location.reload(),
+  'copy-diag': async () => { try { await navigator.clipboard.writeText($('#diag-text').textContent); toast('Copied'); } catch { toast('Select the text and copy it'); } },
   'sync-now': () => { collectForm(); if (!S.settings.sync) { toast('Switch sync on first'); return; } return syncNow({ manual: true }); },
   'retry-failed': async () => {
     const buttons = $$('#feeds-failed-actions button');
@@ -1006,7 +1129,7 @@ Object.assign(actions, {
       const lf = await getLocal();
       await lf.reset();
       localTmp = null;
-      S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null;
+      Pending.clear(); LS.del('stream'); S.streamId = null;
       el.settings.close();
       await start();
     } catch (e) { fail(e); }
@@ -1174,6 +1297,7 @@ function openSettings(welcome = false) {
   $('.token-alt').open = !signedIn && !!S.settings.token;
   updateFeedStatus();
   updateSyncStatus();
+  updateDiagnostics();
   $('#app-version').textContent = `Version ${VERSION.startsWith('__') ? 'dev' : VERSION}`;
   el.settings.classList.toggle('welcome', welcome);
   if (!el.settings.open) el.settings.showModal();
@@ -1198,7 +1322,7 @@ el.form.addEventListener('submit', (ev) => {
   LS.set('settings', S.settings);
   applyAppearance();
   let started = Promise.resolve();
-  if (accountChanged || (!S.api && (S.settings.token || S.settings.oauth))) { S.pending = {}; LS.del('pending'); LS.del('stream'); S.streamId = null; started = start(); }
+  if (accountChanged || (!S.api && (S.settings.token || S.settings.oauth))) { Pending.clear(); LS.del('stream'); S.streamId = null; started = start(); }
   else if (prev.sort !== S.settings.sort) openStream(S.streamId);
   else { renderList(); renderArticle(); }
   if (S.api?.local) S.api.syncOn = !!S.settings.sync;
@@ -1244,6 +1368,7 @@ async function refresh({ quiet = false } = {}) {
       const r = await S.api.refreshAll({
         onProgress: (d, t) => { if (!quiet && t > 1 && d < t) toast(`Fetching feeds ${d}/${t}…`, 60000); },
       });
+      if (r.added || r.failed) logEvent('refresh', `${r.added} new, ${r.fetched} ok, ${r.failed} failed`);
       summary = `${r.added ? `${r.added} new article${r.added === 1 ? '' : 's'}` : 'No new articles'}${r.failed ? ` · ${r.failed} feed${r.failed === 1 ? '' : 's'} failed` : ''}`;
     }
     await loadMeta();
@@ -1273,11 +1398,24 @@ async function start() {
   } else if (st.demo) {
     S.api = new DemoFeedly();
   } else {
+    S.api?.destroy?.();
     S.api = new LocalFeeds(st);
     S.api.syncOn = !!st.sync;
     S.api.syncClient = new SyncClient(S.api);
     S.api.onDocChange = () => scheduleSync(1500);
-    try { await S.api.init(); } catch (e) { fail(new Error('Local storage is unavailable in this browser mode.')); }
+    S.api.getPending = () => S.pending;
+    S.api.onExternalChange = (ids) => {
+      for (const id of ids) {
+        const e = S.byId.get(id);
+        const cur = S.api.entries.get(id);
+        if (e && cur) { e.unread = cur.unread; e.tags = cur.tags; refreshRow(e); }
+      }
+      if (S.currentId) updateToolbar();
+      updateListSub();
+      renderSourcesSoon();
+      loadCounts();
+    };
+    try { await S.api.init(); S.api.applyIntents(S.pending); } catch (e) { fail(new Error('Local storage is unavailable in this browser mode.')); }
     if (!S.api.feeds.size) {
       S.api = null;
       document.documentElement.dataset.backend = 'none';
@@ -1295,7 +1433,7 @@ async function start() {
       return;
     }
   }
-  if (S.api.demo) { S.pending = {}; }
+  if (S.api.demo) Pending.clear();
   document.documentElement.dataset.backend = S.api.local ? 'local' : S.api.demo ? 'demo' : 'feedly';
 
   // instant paint from cache

@@ -50,6 +50,7 @@
           <button class="icon-btn" data-action="mark-all" title="Mark all as read (Shift+A)" aria-label="Mark all as read"><svg><use href="vendor/lucide-sprite.svg#i-check-all"/></svg></button>
         </div>
       </header>
+      <div id="persist-warning" role="alert" hidden>Couldn’t save your changes on this device. They are kept and will be retried. <button type="button" data-action="reload-app">Reload</button></div>
       <div id="ptr" aria-hidden="true"><svg><use href="vendor/lucide-sprite.svg#i-refresh"/></svg></div>
       <div id="entries" class="scroll" tabindex="-1"></div>
     </section>
@@ -108,7 +109,7 @@
   <dialog id="settings">
     <form method="dialog" id="settings-form">
       <header class="dlg-head">
-        <h2>Settings</h2>
+        <h2>Settings <small id="app-version"></small></h2>
         <button class="icon-btn" value="cancel" aria-label="Close"><svg><use href="vendor/lucide-sprite.svg#i-close"/></svg></button>
       </header>
       <div class="dlg-body">
@@ -189,7 +190,13 @@
             <select name="font"><option value="sans">Sans-serif</option><option value="serif">Serif</option></select>
           </label>
         </section>
-        <p class="hint" id="app-version"></p>
+        <section>
+          <details class="diag">
+            <summary>Diagnostics</summary>
+            <pre id="diag-text"></pre>
+            <button type="button" class="ghost" data-action="copy-diag">Copy</button>
+          </details>
+        </section>
         <section class="kbd-help">
           <h3>Keyboard</h3>
           <p><kbd>J</kbd>/<kbd>K</kbd> next/prev · <kbd>M</kbd> read · <kbd>S</kbd> save · <kbd>R</kbd> reader · <kbd>V</kbd> open · <kbd>U</kbd> filter · <kbd>T</kbd> theme · <kbd>Shift</kbd>+<kbd>A</kbd> mark all · <kbd>Shift</kbd>+<kbd>R</kbd> refresh · <kbd>Esc</kbd> back</p>

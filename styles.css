@@ -457,3 +457,14 @@ button.wide { width: 100%; margin-bottom: 6px; }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
 
 .feed-errors .use-hn { display: block; margin-top: 6px; padding: 6px 12px; font-size: 13px; }
+
+.dlg-head h2 small { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--fg-3); letter-spacing: 0; }
+
+/* ---------- save warning ---------- */
+#persist-warning { flex: none; display: flex; gap: 10px; align-items: center; margin: 8px 10px 0; padding: 9px 12px; border-radius: 12px; background: #b3261e; color: #fff; font-size: 13.5px; line-height: 1.35; }
+#persist-warning[hidden] { display: none; }
+#persist-warning button { margin-left: auto; flex: none; padding: 6px 12px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .22); color: #fff; font-weight: 600; cursor: pointer; }
+
+/* ---------- diagnostics ---------- */
+.diag summary { cursor: pointer; font-size: 14px; color: var(--fg-2); padding: 4px 0; }
+.diag pre { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 36vh; overflow: auto; user-select: text; -webkit-user-select: text; }

@@ -2,11 +2,29 @@
 
 The current, authoritative behavior of the app. See AGENTS.md for how to maintain this file.
 
+## Saving changes
+
+- Every read or saved change (opening an article, swiping, the toolbar, keyboard, **Mark all as read**, marking a feed or category read) is first recorded in a durable queue on the device (localStorage), then written to the database. An entry leaves the queue only after the database confirmed the write for that article.
+- If the browser cannot write (the database connection was lost, storage is full, the app was suspended), the changes stay queued and are retried automatically: after 5 seconds, then every 30 seconds, and when the app returns to the foreground. A notice above the article list says "Couldn't save your changes on this device. They are kept and will be retried." with a Reload button, and disappears after the next successful save.
+- The warning is part of the list pane, above the articles, so it never covers the toolbar buttons.
+- The queue keeps one localStorage entry per article, so a second tab or window of the app can never overwrite changes the first one still has to store.
+- After a reload, queued changes are applied again before anything is shown, so articles marked read stay read even if the write never succeeded. The unread counts include them immediately.
+- Queued changes for articles this device does not have yet are kept and applied when those articles arrive. Queued changes older than 30 days are dropped.
+- A lost database connection is reopened automatically; a failed operation is retried once on the new connection.
+- A device never overwrites queued local changes with state from the cloud.
+- Settings → Diagnostics shows article, unread, queue and sync counters and a log of the most recent save and sync problems, for troubleshooting.
+
+## Several tabs or windows
+
+- Two tabs or windows of the app on the same device share one database. Every write touches only the fields its operation owns: marking read or saved writes only the article's state (unread, saved), a refresh writes only its content (title, text, links), each merged into what is stored at that moment. A tab with an outdated view can therefore never overwrite another tab's read or saved marks.
+- State changes are broadcast between tabs: when one tab marks articles, the other tabs update their counts and visible rows at once.
+- The queue of unsaved changes is shared by all tabs (see *Saving changes*).
+
 ## App updates
 
 - An installed app picks up a new version by itself. When a new version has been downloaded and takes over, the app saves pending changes, reloads once, and shows "Updated to the latest version". Nothing is lost: all data is on the device.
 - The app asks for a newer version when it starts and whenever it returns to the foreground (at most every 10 minutes), not only when the browser decides to.
-- Settings shows the running version at the bottom ("Version abc1234", or "Version dev" when run from source), so it is clear which code a device runs.
+- Settings shows the running version in small print right behind its heading ("Version abc1234", or "Version dev" when run from source), so it is clear which code a device runs.
 
 ## Messages
 
@@ -32,7 +50,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Article identity is the feed plus the item's GUID (or link). Updated items keep their read and saved state.
 - Read articles are never removed while their feed still lists them, however old they are or however many the feed lists. A refresh therefore never turns a read article back into an unread one.
 - Read, unsaved articles that their feed no longer lists are removed once they are older than 60 days, or when more than 300 such articles pile up per feed. Unread and saved articles are never removed.
-- If a feed changes an article's GUID but keeps its link, the article keeps its identity: no duplicate appears and its read/saved state stays. This applies only when that link is unique within the fetched feed.
+- If a feed changes an article's GUID but keeps its link and title, the article keeps its identity: no duplicate appears and its read/saved state stays. This applies only when that link and title combination is unique within the fetched feed. A feed that reuses one link for different articles never merges them.
 - Previews use the feed's own content. Reader mode is unchanged: it fetches the article page through the proxy and extracts it with Readability.
 
 ## Hacker News
@@ -58,7 +76,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Turning sync on for the first time uploads the current feed list, the saved articles, and the read articles from the last 30 days. Older read states are not uploaded.
 - The cloud keeps read states for 90 days and saved articles for as long as they are saved. A device that stays offline longer than 90 days can miss older read states.
 - Deleting local data on one device does not delete the cloud copy; with sync on, the next sync restores the feed list and states from the cloud.
-- Article identity is the feed plus the item's GUID, so state is shared between devices only for feeds that have the same feed identity on both (importing the same OPML or syncing the feed list guarantees this).
+- Between devices, an article's read and saved state is matched by its feed plus its link and title when that pair is unique in the feed, so the state follows the article even if the two devices first saw it under different GUIDs. Otherwise the article's local identity is used. State is shared only for feeds that have the same feed identity on both devices (importing the same OPML or syncing the feed list guarantees this).
 
 ## Managing feeds
 
@@ -106,7 +124,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Infinite scroll loads 40 articles at a time.
 - Articles marked read stay in the list until the next refresh.
 - "Mark all as read" (`Shift+A`) asks for confirmation. It only marks articles up to the newest one loaded, so newer arrivals stay unread.
-- "Mark all as read" marks every unread article of the stream that existed when the list was loaded, including ones beyond the visible page and ones from feeds fetched later than the visible articles. Articles that arrive after the list was loaded stay unread.
+- "Mark all as read" goes through the durable queue (see *Saving changes*). It marks every unread article of the stream that existed when the list was loaded, including ones beyond the visible page and ones from feeds fetched later than the visible articles. Articles that arrive after the list was loaded stay unread.
 - Pull-to-refresh, the refresh button and `Shift+R` sync pending changes, then reload sources, counts and the stream.
 - The app refreshes automatically when it returns to the foreground after more than 15 minutes.
 
