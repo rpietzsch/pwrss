@@ -945,6 +945,7 @@ async function syncNow({ manual = false } = {}) {
         await loadCounts();
       }
     }
+    if (manual && S.api?.local && !r.newFeeds) refresh({ quiet: true }); // feeds are fetched per device: bring this one up to date as well
     if (manual) toast(r.sent || r.changed.size || r.docChanged ? `Synced — ${r.sent} sent, ${r.changed.size} updated${r.docChanged ? ', feed list updated' : ''}` : 'Already in sync', 3000);
   } catch (e) {
     syncError = e.message || String(e);
@@ -1528,7 +1529,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 // While the app is open: pick up changes from other devices without any action.
 const SYNC_EVERY_MS = 2 * 60 * 1000;
-setInterval(() => { if (document.visibilityState === 'visible') scheduleSync(0); }, SYNC_EVERY_MS);
+setInterval(() => { if (document.visibilityState === 'visible') { scheduleSync(0); autoRefresh(); } }, SYNC_EVERY_MS); // an open app also fetches feeds once they are 15 min old
 
 // refresh when coming back to the app after a while
 let hiddenAt = 0;

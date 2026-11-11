@@ -160,7 +160,8 @@ server.listen(0, async () => {
 
     check('A has not seen it yet', await A.locator('.entry.unread', { hasText: 'Entry with markup title' }).count() === 1);
     await syncNow(A);
-    check('read state from B reaches A', await A.locator('.entry.read', { hasText: 'Entry with markup title' }).count() === 1);
+    await A.waitForTimeout(1500); // Sync now also refreshes the feeds and rebuilds the list (an unread-only list drops read articles)
+    check('read state from B reaches A', await A.locator('.entry.unread', { hasText: 'Entry with markup title' }).count() === 0);
     await A.click('.src[data-stream*="tag/global.saved"]');
     await A.waitForTimeout(500);
     check('unsaving on B removes it from the Saved list on A', await A.locator('.entry', { hasText: 'Fresh & New' }).count() === 0);
