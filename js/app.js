@@ -945,7 +945,7 @@ async function syncNow({ manual = false } = {}) {
         await loadCounts();
       }
     }
-    if (manual && S.api?.local && !r.newFeeds) refresh({ quiet: true }); // feeds are fetched per device: bring this one up to date as well
+    if (manual && S.api?.local && !r.newFeeds) refresh({ quiet: true, noSync: true }); // feeds are fetched per device: bring this one up to date as well
     if (manual) toast(r.sent || r.changed.size || r.docChanged ? `Synced — ${r.sent} sent, ${r.changed.size} updated${r.docChanged ? ', feed list updated' : ''}` : 'Already in sync', 3000);
   } catch (e) {
     syncError = e.message || String(e);
@@ -1358,12 +1358,13 @@ async function loadMeta() {
 }
 
 let refreshing = false;
-async function refresh({ quiet = false } = {}) {
+async function refresh({ quiet = false, noSync = false } = {}) {
   if (!S.api || refreshing) return;
   refreshing = true;
   $('[data-action="refresh"]')?.classList.add('spin');
   try {
     await flush();
+    if (!noSync && syncActive() && S.api.local) await syncNow(); // Refresh, Shift+R and pull-to-refresh also sync this device first
     let summary = '';
     if (S.api.refreshAll) {
       const r = await S.api.refreshAll({

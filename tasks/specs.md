@@ -125,6 +125,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 - Articles marked read stay in the list until the next refresh.
 - "Mark all as read" (`Shift+A`) asks for confirmation. It only marks articles up to the newest one loaded, so newer arrivals stay unread.
 - "Mark all as read" goes through the durable queue (see *Saving changes*). It marks every unread article of the stream that existed when the list was loaded, including ones beyond the visible page and ones from feeds fetched later than the visible articles. Articles that arrive after the list was loaded stay unread.
+- With sync on, pull-to-refresh, the refresh button and `Shift+R` also run a device sync first (before fetching feeds).
 - Pull-to-refresh, the refresh button and `Shift+R` sync pending changes, then reload sources, counts and the stream.
 - The app refreshes automatically when it returns to the foreground after more than 15 minutes.
 
