@@ -914,9 +914,15 @@ async function updateSyncStatus() {
     : `Last synced ${when}${waiting ? ` · ${waiting} change${waiting === 1 ? '' : 's'} waiting` : ''}.`;
 }
 
-async function syncNow({ manual = false } = {}) {
-  if (!syncActive() || syncing) return;
+let syncRun = null;
+function syncNow(opts) {
+  if (!syncActive()) return Promise.resolve();
+  return (syncRun ??= doSync(opts).finally(() => { syncRun = null; })); // a running sync is joined, not skipped
+}
+
+async function doSync({ manual = false } = {}) {
   syncing = true;
+  $('[data-action="refresh"]')?.classList.add('spin');
   const btn = $('#sync-now-btn');
   btn.disabled = true;
   try {
@@ -953,6 +959,7 @@ async function syncNow({ manual = false } = {}) {
     if (manual) fail(e);
   } finally {
     syncing = false;
+    if (!refreshing) $('[data-action="refresh"]')?.classList.remove('spin');
     btn.disabled = false;
     updateSyncStatus();
   }
