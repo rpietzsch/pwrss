@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pwrss</title>
+  <meta name="description" content="A fast, gesture-driven Feedly reader.">
+  <meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#18181a" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Pwrss">
+  <meta name="referrer" content="no-referrer">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script>try{var st=JSON.parse(localStorage.getItem('pwrss.settings')||'{}');document.documentElement.dataset.theme=st.theme||'auto';document.documentElement.dataset.toolbar=st.toolbar||'bottom'}catch(e){}</script>
+  <script src="vendor/purify.min.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="app" data-view="list">
+    <!-- Sources -->
+    <aside id="sources" class="pane" aria-label="Sources">
+      <header class="bar">
+        <h1 class="brand">Pwrss</h1>
+        <div class="bar-actions">
+          <button class="icon-btn" id="manage-btn" data-action="manage" title="Manage feeds" aria-label="Manage feeds"><svg><use href="vendor/lucide-sprite.svg#i-list"/></svg></button>
+          <button class="icon-btn" data-action="cycle-theme" title="Theme: System (T)" aria-label="Change theme"><svg><use href="vendor/lucide-sprite.svg#i-theme-auto"/></svg></button>
+          <button class="icon-btn" data-action="refresh" title="Refresh (Shift+R)" aria-label="Refresh"><svg><use href="vendor/lucide-sprite.svg#i-refresh"/></svg></button>
+          <button class="icon-btn" data-action="settings" title="Settings" aria-label="Settings"><svg><use href="vendor/lucide-sprite.svg#i-gear"/></svg></button>
+        </div>
+      </header>
+      <nav id="source-list" class="scroll"></nav>
+    </aside>
+    <div id="scrim" data-action="close-drawer"></div>
+
+    <!-- Article list -->
+    <section id="list" class="pane" aria-label="Articles">
+      <header class="bar">
+        <button class="icon-btn" data-action="show-sources" title="Sources" aria-label="Sources"><svg><use href="vendor/lucide-sprite.svg#i-sidebar"/></svg></button>
+        <div class="bar-title">
+          <h2 id="list-title">All</h2>
+          <span id="list-sub"></span>
+        </div>
+        <div class="bar-actions">
+          <button class="icon-btn" data-action="toggle-filter" id="filter-btn" title="Unread only / all (U)" aria-label="Toggle unread filter"><svg><use href="vendor/lucide-sprite.svg#i-dot"/></svg></button>
+          <button class="icon-btn" data-action="mark-all" title="Mark all as read (Shift+A)" aria-label="Mark all as read"><svg><use href="vendor/lucide-sprite.svg#i-check-all"/></svg></button>
+        </div>
+      </header>
+      <div id="persist-warning" role="alert" hidden>Couldn’t save your changes on this device. They are kept and will be retried. <button type="button" data-action="reload-app">Reload</button></div>
+      <div id="ptr" aria-hidden="true"><svg><use href="vendor/lucide-sprite.svg#i-refresh"/></svg></div>
+      <div id="entries" class="scroll" tabindex="-1"></div>
+    </section>
+
+    <!-- Article -->
+    <main id="article" class="pane" aria-label="Article">
+      <header class="bar">
+        <button class="icon-btn back" data-action="back" title="Back (Esc)" aria-label="Back"><svg><use href="vendor/lucide-sprite.svg#i-back"/></svg></button>
+        <div class="bar-actions grow">
+          <button class="icon-btn" data-action="prev" title="Previous (K)" aria-label="Previous article"><svg><use href="vendor/lucide-sprite.svg#i-up"/></svg></button>
+          <button class="icon-btn" data-action="next" title="Next (J)" aria-label="Next article"><svg><use href="vendor/lucide-sprite.svg#i-down"/></svg></button>
+          <span class="spacer"></span>
+          <button class="icon-btn" data-action="toggle-read" id="read-btn" title="Toggle read (M)" aria-label="Toggle read"><svg><use href="vendor/lucide-sprite.svg#i-dot"/></svg></button>
+          <button class="icon-btn" data-action="toggle-star" id="star-btn" title="Save for later (S)" aria-label="Save for later"><svg><use href="vendor/lucide-sprite.svg#i-star"/></svg></button>
+          <button class="icon-btn" data-action="toggle-reader" id="reader-btn" title="Reader mode (R)" aria-label="Reader mode"><svg><use href="vendor/lucide-sprite.svg#i-reader"/></svg></button>
+          <button class="icon-btn" data-action="share" title="Share" aria-label="Share"><svg><use href="vendor/lucide-sprite.svg#i-share"/></svg></button>
+          <button class="icon-btn" data-action="open" title="Open in browser (V)" aria-label="Open original"><svg><use href="vendor/lucide-sprite.svg#i-external"/></svg></button>
+        </div>
+      </header>
+      <div id="article-scroll" class="scroll">
+        <article id="content" class="empty-state"><p>Select an article</p></article>
+      </div>
+    </main>
+  </div>
+
+  <!-- Quick preview sheet (long-press) -->
+  <div id="peek" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Quick preview">
+      <div class="sheet-grip"></div>
+      <div id="peek-body"></div>
+      <div class="sheet-actions">
+        <button data-peek="read">Mark read</button>
+        <button data-peek="star">Save</button>
+        <button data-peek="open" class="primary">Open</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage feeds -->
+  <dialog id="manage">
+    <div class="dlg-form">
+      <header class="dlg-head">
+        <h2>Manage feeds</h2>
+        <button class="icon-btn" data-action="close-manage" aria-label="Close"><svg><use href="vendor/lucide-sprite.svg#i-close"/></svg></button>
+      </header>
+      <div class="dlg-body" id="manage-body"></div>
+      <footer class="dlg-foot">
+        <button type="button" class="ghost" data-action="export-opml">Export OPML</button>
+        <span class="spacer"></span>
+        <button type="button" class="primary" data-action="close-manage">Done</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settings">
+    <form method="dialog" id="settings-form">
+      <header class="dlg-head">
+        <h2>Settings <small id="app-version"></small></h2>
+        <button class="icon-btn" value="cancel" aria-label="Close"><svg><use href="vendor/lucide-sprite.svg#i-close"/></svg></button>
+      </header>
+      <div class="dlg-body">
+        <section>
+          <h3>Feeds</h3>
+          <label class="row"><span>Source</span>
+            <select name="source"><option value="local">Local feeds (OPML)</option><option value="feedly">Feedly account</option></select>
+          </label>
+          <div class="btn-row">
+            <label class="btn ghost">Import OPML…<input type="file" id="opml-file" accept=".opml,.xml,text/xml,application/xml,text/x-opml,*/*" hidden></label>
+            <button type="button" class="ghost" data-action="export-opml">Export OPML</button>
+          </div>
+          <button type="button" class="ghost wide" data-action="manage">Manage feeds…</button>
+          <p class="hint" id="feeds-status"></p>
+          <div class="btn-row" id="feeds-failed-actions" hidden>
+            <button type="button" class="ghost" data-action="retry-failed">Retry failed</button>
+            <button type="button" class="ghost danger" data-action="remove-failed" id="remove-failed-btn">Remove all failed</button>
+          </div>
+          <ul class="feed-errors" id="feeds-errors" hidden></ul>
+          <p class="hint">Export your subscriptions from Feedly at <a href="https://feedly.com/i/opml" target="_blank" rel="noopener">feedly.com/i/opml</a> and import the file here. Articles and read state stay on this device.</p>
+          <button type="button" class="ghost danger" data-action="reset-local">Delete local feeds and articles</button>
+        </section>
+        <section>
+          <h3>Proxy</h3>
+          <label>Proxy URL
+            <input type="url" name="proxy" spellcheck="false" placeholder="https://pwrss-proxy.you.workers.dev">
+          </label>
+          <label>Proxy key <small>(optional)</small>
+            <input type="password" name="proxyKey" autocomplete="off" spellcheck="false">
+          </label>
+          <p class="hint">Browsers can't fetch feeds or article pages from other sites directly (CORS), so Pwrss uses your own tiny Cloudflare Worker for feeds and Reader mode. See the <a href="https://github.com/rpietzsch/pwrss#proxy" target="_blank" rel="noopener">README</a>.</p>
+        </section>
+        <section>
+          <h3>Sync <small>(optional)</small></h3>
+          <label class="row"><span>Sync across devices</span><input type="checkbox" name="sync"></label>
+          <div class="btn-row"><button type="button" class="ghost" data-action="sync-now" id="sync-now-btn">Sync now</button></div>
+          <p class="hint" id="sync-status"></p>
+          <p class="hint">Keeps your feed list and read/saved articles in step on all your devices, through your own Worker (stored in your Cloudflare account, nowhere else). Needs the proxy key to be set. Article text isn't synced: each device downloads its own feeds. The latest change wins. On a new device, enter the proxy URL and key, switch this on and save.</p>
+        </section>
+        <section>
+          <h3>Feedly account <small>(optional)</small></h3>
+          <p class="hint">Only needed if you pick “Feedly account” as source. Feedly now restricts API access, so this may not be available for your account.</p>
+          <div class="signin">
+            <button type="button" class="primary" data-action="login" id="signin-btn">Sign in with Feedly</button>
+            <p class="hint" id="signin-status"></p>
+          </div>
+          <details class="token-alt">
+            <summary>Use an access token instead</summary>
+            <label>Access token
+              <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="Feedly access token">
+            </label>
+          </details>
+        </section>
+        <section>
+          <h3>Reading</h3>
+          <label class="row"><span>Mark as read when opened</span><input type="checkbox" name="markOnOpen"></label>
+          <label class="row"><span>Mark as read when scrolled past</span><input type="checkbox" name="markOnScroll"></label>
+          <label class="row"><span>Open articles in Reader mode</span><input type="checkbox" name="readerDefault"></label>
+          <label class="row"><span>Show thumbnails</span><input type="checkbox" name="thumbs"></label>
+          <label class="row"><span>Sort</span>
+            <select name="sort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
+          </label>
+          <label class="row"><span>Swipe right on an article</span>
+            <select name="swipeRight"><option value="read">Toggle read</option><option value="star">Toggle saved</option></select>
+          </label>
+        </section>
+        <section>
+          <h3>Appearance</h3>
+          <label class="row"><span>Theme</span>
+            <select name="theme"><option value="auto">System (default)</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select>
+          </label>
+          <label class="row"><span>Text size</span><input type="range" name="fontSize" min="14" max="24" step="1"></label>
+          <label class="row"><span>Toolbar position</span>
+            <select name="toolbar"><option value="bottom">Bottom (default)</option><option value="top">Top</option></select>
+          </label>
+          <p class="hint">Bottom keeps buttons within thumb reach. Applies to phone and tablet layouts; wide desktop windows always show toolbars on top.</p>
+          <label class="row"><span>Article font</span>
+            <select name="font"><option value="sans">Sans-serif</option><option value="serif">Serif</option></select>
+          </label>
+        </section>
+        <section>
+          <details class="diag">
+            <summary>Diagnostics</summary>
+            <pre id="diag-text"></pre>
+            <button type="button" class="ghost" data-action="copy-diag">Copy</button>
+          </details>
+        </section>
+        <section class="kbd-help">
+          <h3>Keyboard</h3>
+          <p><kbd>J</kbd>/<kbd>K</kbd> next/prev · <kbd>M</kbd> read · <kbd>S</kbd> save · <kbd>R</kbd> reader · <kbd>V</kbd> open · <kbd>U</kbd> filter · <kbd>T</kbd> theme · <kbd>Shift</kbd>+<kbd>A</kbd> mark all · <kbd>Shift</kbd>+<kbd>R</kbd> refresh · <kbd>Esc</kbd> back</p>
+          <h3>Gestures</h3>
+          <p>Swipe an article right/left to toggle read or saved. Long-press for a quick preview. Swipe from the left edge to go back. Pull down to refresh.</p>
+        </section>
+      </div>
+      <footer class="dlg-foot">
+        <button type="button" data-action="demo" class="ghost">Try demo</button>
+        <button type="button" data-action="logout" class="ghost danger" title="Sign out of Feedly">Sign out</button>
+        <span class="spacer"></span>
+        <button value="save" class="primary">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" popover="manual" role="status" aria-live="polite"></div>
+
+</body>
+</html>
