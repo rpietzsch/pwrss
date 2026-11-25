@@ -76,6 +76,23 @@ server.listen(0, async () => {
     await p.waitForTimeout(300);
     check('quick preview opens', await p.locator('#peek').isVisible());
     await p.keyboard.press('Escape');
+    {
+      const states = () => p.$$eval('.entry', (n) => n.map((x) => x.classList.contains('unread')));
+      await p.locator('.entry').nth(5).click({ button: 'right' }); // after the swipes, entry 5 is a known one; mark above
+      await p.waitForTimeout(300);
+      const before = await states();
+      await p.click('[data-peek="above"]');
+      await p.waitForTimeout(300);
+      const after = await states();
+      check('long-press: mark above read marks only the articles above', after.slice(0, 5).every((u) => !u) && after[5] === before[5] && after.slice(6).join() === before.slice(6).join(), { before, after });
+      await p.locator('.entry').nth(8).click({ button: 'right' });
+      await p.waitForTimeout(300);
+      const b2 = await states();
+      await p.click('[data-peek="below"]');
+      await p.waitForTimeout(300);
+      const a2 = await states();
+      check('long-press: mark below read marks only the articles below', a2.slice(9).every((u) => !u) && a2[8] === b2[8] && a2.slice(0, 8).join() === b2.slice(0, 8).join(), { b2, a2 });
+    }
 
     const bg = () => p.evaluate(() => getComputedStyle(document.body).backgroundColor);
     const light = await bg();

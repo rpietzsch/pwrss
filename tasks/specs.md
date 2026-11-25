@@ -132,7 +132,7 @@ The current, authoritative behavior of the app. See AGENTS.md for how to maintai
 ## Gestures
 
 - Swipe an article row right past 72px to toggle read (default). Swipe left to toggle saved. Settings can swap the two directions.
-- Long-press (450ms), or right-click on desktop, opens the quick-preview sheet: title, image, a snippet of up to 700 characters, and Mark read, Save and Open buttons.
+- Long-press (450ms), or right-click on desktop, opens the quick-preview sheet: title, image, a snippet of up to 700 characters, and Mark above read, Mark below read, Mark read, Save and Open buttons. Mark above/below read marks the loaded articles listed above/below the pressed one as read; the pressed article itself is not changed.
 - Swiping from the left screen edge (within 24px) goes back on phones and tablets.
 - A horizontal flick in the article view moves to the next or previous article. It doesn't trigger when the touch starts on code blocks, tables or embeds.
 

@@ -65,7 +65,13 @@ server.listen(0, async () => {
       };
     }, [FEEDS['https://alpha.example/feed.xml'], FEEDS['https://beta.example/atom.xml'], FEEDS['https://gamma.example/rdf'], FEEDS['https://delta.example/feed'], fx('sample.opml')]);
 
-    const hnj = fs.readFileSync(path.join(__dirname, 'fixtures', 'hn.json'), 'utf8');
+    const hnj = (() => { // move the recorded answer to "now", so the articles are recent whenever the test runs (older ones start as read)
+      const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'hn.json'), 'utf8');
+      const top = Math.max(...[...raw.matchAll(/"created_at_i":\s*(\d+)/g)].map((m) => Number(m[1])));
+      const d = Math.floor(Date.now() / 1000) - 3600 - top;
+      return raw.replace(/"created_at_i":(\s*)(\d+)/g, (_, w, n) => `"created_at_i":${w}${Number(n) + d}`)
+        .replace(/"(created_at|updated_at)":(\s*)"([^"]+)"/g, (_, k, w, v) => `"${k}":${w}"${new Date(Date.parse(v) + d * 1000).toISOString().replace('.000Z', 'Z')}"`);
+    })();
     const hn = await p.evaluate(async (json) => {
       const m = await import('./js/hnapi.js');
       const f = m.parseHNApi(JSON.parse(json), 'https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30');
@@ -77,7 +83,7 @@ server.listen(0, async () => {
       };
     }, hnj);
     check('HN API: title, site and one item per hit', hn.f.title === 'Hacker News: Front Page' && hn.f.website === 'https://news.ycombinator.com/' && hn.f.items.length === 3, hn.f);
-    check('HN API: story link, author, time, points and discussion link', hn.f.items[0].link.startsWith('https://www.thestateofai.com/') && hn.f.items[0].author === 'TheWiggles' && hn.f.items[0].published === 1794161767000 && /804 points · 430 comments/.test(hn.f.items[0].summary) && hn.f.items[0].summary.includes('item?id=50415628'), hn.f.items[0]);
+    check('HN API: story link, author, time, points and discussion link', hn.f.items[0].link.startsWith('https://www.thestateofai.com/') && hn.f.items[0].author === 'TheWiggles' && Date.now() - hn.f.items[0].published < 12 * 3600e3 && /804 points · 430 comments/.test(hn.f.items[0].summary) && hn.f.items[0].summary.includes('item?id=50415628'), hn.f.items[0]);
     check('HN API: Ask HN without a link points at the discussion', hn.f.items[2].link === 'https://news.ycombinator.com/item?id=777', hn.f.items[2]);
     check('HN hosts and API addresses are recognised', JSON.stringify(hn.hosts) === '[true,true,true,false]' && JSON.stringify(hn.api) === '[true,true,false]', hn);
     check('HN replacement: front page by default, newest when asked', hn.repl[0].includes('search_by_date') && hn.repl[1].includes('tags=front_page'), hn.repl);

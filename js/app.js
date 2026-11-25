@@ -687,7 +687,18 @@ el.peek.addEventListener('click', (ev) => {
   if (a === 'read') setRead(e, e.unread);
   if (a === 'star') setSaved(e, !isSaved(e));
   if (a === 'open') openArticle(e.id);
+  if (a === 'above' || a === 'below') markSide(e, a);
 });
+
+/** Mark the loaded articles above or below `e` in the list as read (not `e` itself). */
+function markSide(e, side) {
+  const i = S.entries.findIndex((x) => x.id === e.id);
+  if (i < 0) return;
+  const list = side === 'above' ? S.entries.slice(0, i) : S.entries.slice(i + 1);
+  const unread = list.filter((x) => x.unread);
+  for (const x of unread) setRead(x, true);
+  toast(unread.length ? `Marked ${unread.length} article${unread.length === 1 ? '' : 's'} as read` : 'Nothing to mark', 1800);
+}
 
 // ---------- actions ----------
 function doSwipe(e, action) {
